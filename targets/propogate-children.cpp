@@ -26,6 +26,7 @@ int main(int argc, char* argv[]) {
         const std::string& child_rank = ORDER[x - 1];
 
         for (const auto& parent: tree.get_order(ORDER[x])) {
+            std::cout << "\rAnalyzing " << parent << "        " << std::flush;
 
             auto& parent_seqs = tree.get_sequences(parent);
 

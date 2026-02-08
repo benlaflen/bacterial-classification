@@ -2,6 +2,7 @@
 #include <chrono>
 #include <iostream>
 
+
 HVCache::HVCache(size_t max_entries, std::vector<int> k_mer_channels)
     : capacity(max_entries), k_mer_channels(k_mer_channels) {}
 

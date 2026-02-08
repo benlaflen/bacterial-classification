@@ -13,7 +13,8 @@ extern const std::vector<std::string> ORDER = {
 };
 
 int main(int argc, char* argv[]) {
-    HVCache cache = HVCache(1000);
+    HVCache cache = HVCache();
+    std::cout << "\nCache size is " << std::to_string(CACHE_SIZE) << " entries (" << std::to_string(CACHE_BYTES) << "b)\n";
     float total_score = 0;
     int total_count = 0;
 

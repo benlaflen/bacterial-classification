@@ -15,3 +15,9 @@ target_compile_features(hvlib
     PUBLIC
         cxx_std_20
 )
+
+target_compile_options(hvlib
+    PRIVATE
+        $<$<CONFIG:Release>:-O3 -march=native -ffast-math>
+        $<$<CONFIG:RelWithDebInfo>:-O3 -march=native>
+)

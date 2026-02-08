@@ -44,21 +44,42 @@ const HV_16& HVCache::get(const std::string& seq) {
 }
 
 HV_16 HVCache::compute(const std::string& seq) {
-    HV_16 hv = make_accumulator();
-    HV binder = empty_hv();
-    for(const int &channel: k_mer_channels) {
-        for(int index = 0; index < seq.size()-channel; index++) {
-            for(int it = index; it < index+channel; it++) {
-                mult(binder, get_base_hv(seq[it]), binder, it-index);
-            }
-            superpose(hv, binder);
+    constexpr size_t BATCH = 16;
 
+    HV_16 hv = make_accumulator();
+
+    HV binders[BATCH];
+    size_t batch_count = 0;
+
+    HV binder = empty_hv();
+
+    for (const int& channel : k_mer_channels) {
+        for (int index = 0; index < seq.size() - channel; ++index) {
+
+            // Build binder for this window (unchanged logic)
+            for (int it = index; it < index + channel; ++it) {
+                mult(binder, get_base_hv(seq[it]), binder, it - index);
+            }
+
+            binders[batch_count++] = binder;
+
+            // Reset binder to identity (~0)
             std::fill(binder.begin(), binder.end(), ~uint64_t(0));
             constexpr size_t excess = HV_WORDS * 64 - HV_SIZE;
-            if constexpr (excess > 0) {
+            if constexpr (excess > 0)
                 binder.back() &= (~uint64_t(0)) >> excess;
+
+            // Flush batch
+            if (batch_count == BATCH) {
+                superpose_batch(hv, binders, batch_count);
+                batch_count = 0;
             }
         }
     }
+
+    // Final partial batch
+    if (batch_count > 0)
+        superpose_batch(hv, binders, batch_count);
+
     return hv;
 }

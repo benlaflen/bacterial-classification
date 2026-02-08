@@ -3,7 +3,7 @@
 #include <vector>
 #include <cstdint>
 
-constexpr size_t HV_SIZE = 100'000;
+constexpr size_t HV_SIZE = 10'000;
 
 // 1 bit per dimension, packed
 using HV = std::vector<uint64_t>;
@@ -17,10 +17,10 @@ const HV& get_base_hv(char symbol);
 
 void mult(const HV& l, const HV& r, HV& out, size_t k_bits);
 
-using HV_16 = std::vector<uint16_t>;
+using HV_16 = std::vector<int16_t>;
 
 HV_16 make_accumulator();
 
-void superpose(HV_16 &l, const HV &r);
+void superpose_batch(HV_16& acc, const HV* binders, size_t batch_size);
 
 float cosine(const HV_16 &l, const HV_16 &r);

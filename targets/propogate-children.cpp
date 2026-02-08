@@ -26,7 +26,6 @@ int main(int argc, char* argv[]) {
         const std::string& child_rank = ORDER[x - 1];
 
         for (const auto& parent: tree.get_order(ORDER[x])) {
-            std::cout << "\rAnalyzing " << parent << "        " << std::flush;
 
             auto& parent_seqs = tree.get_sequences(parent);
 
@@ -41,7 +40,9 @@ int main(int argc, char* argv[]) {
             // parent_seqs : sequences directly at this node
             // child_seqs  : union of all immediate children
             std::vector<std::string> added_seqs;
-            for(const auto &child : child_seqs) {
+            for(int x = 0; x < child_seqs.size(); x++) {
+                const auto &child = child_seqs[x];
+                std::cout << "\rAnalyzing " << parent << " " << std::to_string(x) << "/" << std::to_string(child_seqs.size()) << "        " << std::flush;
                 float best_score = 0;
                 auto child_hv = cache.get(child);
                 for(const auto &parent_seq : parent_seqs) best_score = std::max(best_score, cosine(child_hv, cache.get(parent_seq)));
@@ -56,4 +57,5 @@ int main(int argc, char* argv[]) {
         }
     }
     std::cout << "\nAverage score: " << std::to_string(total_score / total_count) << "\n";
+    std::cout << "\nTotal children analyzed: " << std::to_string(total_count) << "\n";
 }

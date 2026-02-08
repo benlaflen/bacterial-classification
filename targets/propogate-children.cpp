@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <stdexcept>
+#include <math.h>
 
 #include "encoder.h"
 #include "HV.h"

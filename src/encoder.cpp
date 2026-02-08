@@ -1,9 +1,16 @@
 #include "encoder.h"
+#include <chrono>
+#include <iostream>
 
 HVCache::HVCache(size_t max_entries, std::vector<int> k_mer_channels)
     : capacity(max_entries), k_mer_channels(k_mer_channels) {}
 
 const HV_16& HVCache::get(const std::string& seq) {
+    using std::chrono::high_resolution_clock;
+    using std::chrono::duration_cast;
+    using std::chrono::duration;
+    using std::chrono::milliseconds;
+
     // Fast path: cache hit
     auto it = map.find(seq);
     if (it != map.end()) {
@@ -13,7 +20,11 @@ const HV_16& HVCache::get(const std::string& seq) {
     }
 
     // Cache miss: compute
+    auto t1 = high_resolution_clock::now();
     HV_16 hv = compute(seq);
+    auto t2 = high_resolution_clock::now();
+    auto ms_int = duration_cast<milliseconds>(t2 - t1);
+    std::cout << ms_int.count() << "ms\n";
 
     // Evict if needed
     if (map.size() >= capacity) {

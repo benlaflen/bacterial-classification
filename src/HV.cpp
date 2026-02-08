@@ -1,6 +1,7 @@
 #include "HV.h"
 #include <unordered_map>
 #include <random>
+#include <stdexcept>
 
 //#define NORM_COSINE
 

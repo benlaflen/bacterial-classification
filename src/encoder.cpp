@@ -20,11 +20,7 @@ const HV_16& HVCache::get(const std::string& seq) {
     }
 
     // Cache miss: compute
-    auto t1 = high_resolution_clock::now();
     HV_16 hv = compute(seq);
-    auto t2 = high_resolution_clock::now();
-    auto ms_int = duration_cast<milliseconds>(t2 - t1);
-    std::cout << ms_int.count() << "ms\n";
 
     // Evict if needed
     if (map.size() >= capacity) {

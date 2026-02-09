@@ -20,5 +20,10 @@ if(TARGET_SOURCES)
                 $<$<CONFIG:Release>:-O3 -march=native -ffast-math>
                 $<$<CONFIG:RelWithDebInfo>:-O3 -march=native>
         )
+
+        target_link_options(${target_name}
+            PRIVATE
+                $<$<CONFIG:Debug>:-fsanitize=address,undefined>
+        )
     endforeach()
 endif()

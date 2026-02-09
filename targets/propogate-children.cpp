@@ -9,7 +9,7 @@
 
 #define THRESHOLD 0.65
 
-extern const std::vector<std::string> ORDER = {
+const std::vector<std::string> ORDER = {
     "s__", "g__", "f__", "o__", "c__", "p__", "k__"
 };
 

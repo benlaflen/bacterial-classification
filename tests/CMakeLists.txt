@@ -14,7 +14,7 @@ if (TEST_SOURCES)
             PRIVATE cxx_std_20
         )
 
-        target_compile_options(${target_name}
+        target_compile_options(${test_name}
             PRIVATE
                 $<$<CONFIG:Debug>:-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer>
                 $<$<CONFIG:Release>:-O3 -march=native -ffast-math>

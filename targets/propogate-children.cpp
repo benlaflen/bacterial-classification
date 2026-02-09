@@ -49,10 +49,10 @@ int main(int argc, char* argv[]) {
                 for(const auto &parent_seq : parent_seqs) best_score = std::max(best_score, cosine(child_hv, cache.get(parent_seq)));
                 for(const auto &parent_seq : added_seqs) best_score = std::max(best_score, cosine(child_hv, cache.get(parent_seq)));
                 counts[static_cast<int>(std::floor(best_score*100))]++;
-                /*if (best_score < THRESHOLD ) {
+                if (best_score < THRESHOLD ) {
                     tree.append_sequence(parent, child);
                     added_seqs.push_back(child);
-                }*/
+                }
             }
         }
     }

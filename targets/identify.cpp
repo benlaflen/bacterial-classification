@@ -25,7 +25,7 @@ struct sequence {
     float score;
 
     std::vector<std::string> get_children(Hierarchy &tree) {
-        if (path.empty()) return tree.get_order("k__");
+        if (path.empty()) return tree.get_order("p__");
         return tree.get_children(path.back());
     }
 };

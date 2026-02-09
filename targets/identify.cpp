@@ -136,14 +136,14 @@ int main(int argc, char* argv[]) {
             );
 
             for (auto *seq : seqs) {
-                float best_score = 0.0f;
+                float best_score = -1.0f;
                 for (const auto &cat_seq : tree.get_sequences(child)) {
                     float score = cosine(cache.get(cat_seq), cache.get(seq->sequence));
                     best_score = std::max(
                         best_score,
                         score
                     );
-                    LOG(std::cout << "      score=" << score << "\n");
+        //            LOG(std::cout << "      score=" << score << "\n");
                 }
 
                 seq->score = best_score;

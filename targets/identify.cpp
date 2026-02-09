@@ -1,17 +1,23 @@
 #include "encoder.h"
 #include "HV.h"
 #include "hierarchy.h"
+
 #include <filesystem>
 #include <fstream>
 #include <unordered_set>
 #include <iostream>
+#include <algorithm>
+
+#define ENABLE_LOGGING 1
+
+#if ENABLE_LOGGING
+    #define LOG(x) do { x; } while(0)
+#else
+    #define LOG(x) do {} while(0)
+#endif
 
 constexpr float threshold = 0.65;
 constexpr int BEAM_WIDTH = 5;
-
-const std::vector<std::string> ORDER = {
-    "k__", "p__", "c__", "o__", "f__", "g__", "s__"
-};
 
 struct sequence {
     std::string sequence;
@@ -19,19 +25,21 @@ struct sequence {
     float score;
 
     std::vector<std::string> get_children(Hierarchy &tree) {
-        if (path.size() == 0) return tree.get_order("k__");
-        return tree.get_children(path[path.size()-1]);
+        if (path.empty()) return tree.get_order("k__");
+        return tree.get_children(path.back());
     }
 };
 
 int main(int argc, char* argv[]) {
-    if(argc != 4) throw std::runtime_error("Usage: identify sequence-directory taxonomy-file input-fasta");
+    if(argc != 4)
+        throw std::runtime_error("Usage: identify sequence-directory taxonomy-file input-fasta");
 
     Hierarchy tree = Hierarchy(argv[1], argv[2]);
-    HVCache cache = HVCache();
+    HVCache cache;
+
     std::unordered_map<std::string, std::vector<std::string>> outputs;
 
-    //Create initial sequences
+    // ---------------- FASTA LOAD ----------------
     std::filesystem::path fasta = argv[3];
     std::vector<std::string> seqs;
     std::unordered_map<std::string, std::string> seq_to_name;
@@ -42,103 +50,162 @@ int main(int argc, char* argv[]) {
 
         while (std::getline(in, line)) {
             if (line.starts_with(">")) {
-                // flush previous sequence
                 if (!seq.empty()) {
                     seqs.push_back(seq);
                     seq_to_name.emplace(seq, name);
                     seq.clear();
                 }
-                // store header without '>'
                 name = line.substr(1);
             } else {
                 seq += line;
             }
         }
 
-        // flush last sequence
         if (!seq.empty()) {
             seqs.push_back(seq);
             seq_to_name.emplace(seq, name);
         }
     }
 
+    LOG(
+        std::cout << "Loaded " << seqs.size() << " sequences\n";
+        for (auto &s : seqs)
+            std::cout << "  len=" << s.size()
+                      << " name=" << seq_to_name[s] << "\n";
+    );
+
+    // ---------------- INITIAL BEAMS ----------------
     std::unordered_map<std::string, std::vector<sequence>> sequences;
-    for(auto seq: seqs) sequences.emplace(seq, std::vector<sequence>{sequence{
-        seq,
-        std::vector<std::string>(),
-        0.0f
-    }});
-    //For each order
-    for(int x = 0; x < 7; x++) {
+    for (auto &seq : seqs) {
+        sequences.emplace(seq, std::vector<sequence>{
+            sequence{seq, {}, 0.0f}
+        });
+    }
 
-        //Create list for children of each category
-        std::unordered_map<std::string, std::vector<sequence *>> child_categories;
+    // ---------------- TAXONOMY WALK ----------------
+    for (int x = 0; x < 7; x++) {
 
-        //For each sequence
-        for(auto &[target, curr_sequence]: sequences) {
-            //For each seq in sequence
+        LOG(std::cout << "\n=== TAXONOMY LEVEL " << x << " ===\n");
+
+        std::unordered_map<std::string, std::vector<sequence*>> child_categories;
+
+        for (auto &[target, curr_sequence] : sequences) {
+            LOG(
+                std::cout << "Target len=" << target.size()
+                          << " beam=" << curr_sequence.size() << "\n";
+            );
+
             std::vector<sequence> next_seqs;
-            for(auto &seq: curr_sequence) {
-                //add all children of current category of seq to list of children
-                for(auto child: seq.get_children(tree)) {
-                    child_categories.emplace(child, std::vector<sequence *>());
 
-                //add a new seq to sequence for each child of current category
+            for (auto &seq : curr_sequence) {
+                auto children = seq.get_children(tree);
+
+                LOG(
+                    std::cout << "  Expanding [";
+                    for (auto &p : seq.path) std::cout << p << " ";
+                    std::cout << "] -> " << children.size() << " children\n";
+                );
+
+                for (auto &child : children) {
+                    child_categories[child];
+
                     std::vector<std::string> new_path = seq.path;
                     new_path.push_back(child);
-                    sequence n({
+
+                    next_seqs.push_back(sequence{
                         seq.sequence,
                         std::move(new_path),
-                        0
+                        0.0f
                     });
-                    child_categories[child].push_back(&n);
-                    next_seqs.push_back(std::move(n));
+
+                    child_categories[child].push_back(&next_seqs.back());
                 }
             }
-            sequences[target] = next_seqs;
+
+            curr_sequence = std::move(next_seqs);
         }
 
-        //For child category in children
-        for(auto& [child, seqs]: child_categories) {
-            //For each seq that uses this category
-            for(auto& seq: seqs) {
-                float best_score = 0.0f;
-                //Get max score between category and seq
-                for(const auto &cat_seq: tree.get_sequences(child)) best_score = std::max(best_score, cosine(cache.get(cat_seq), cache.get(seq->sequence)));
+        // ---------------- SCORING ----------------
+        for (auto &[child, seqs] : child_categories) {
+            LOG(
+                std::cout << " Scoring category " << child
+                          << " (" << seqs.size() << " candidates)\n";
+            );
 
-                //Update seq
+            for (auto *seq : seqs) {
+                float best_score = 0.0f;
+
+                for (const auto &cat_seq : tree.get_sequences(child)) {
+                    best_score = std::max(
+                        best_score,
+                        cosine(cache.get(cat_seq), cache.get(seq->sequence))
+                    );
+                }
+
                 seq->score = best_score;
+
+                LOG(
+                    std::cout << "   score=" << best_score
+                              << " target_len=" << seq->sequence.size()
+                              << "\n";
+                );
             }
         }
-    
-        //for each sequence
+
+        // ---------------- BEAM PRUNE ----------------
         for (auto it = sequences.begin(); it != sequences.end(); ) {
             auto &target = it->first;
             auto &seqs   = it->second;
 
-            std::sort(seqs.begin(), seqs.end(), [](auto& a, auto& b){ return a.score > b.score; });
+            LOG(std::cout << "  Pre-prune: " << seqs.size() << "\n");
+
+            std::sort(seqs.begin(), seqs.end(),
+                      [](auto &a, auto &b) { return a.score > b.score; });
 
             if (seqs.empty() || seqs[0].score < threshold) {
-                outputs.emplace(target, seqs.empty() ? std::vector<std::string>{} : seqs[0].path);
+                LOG(std::cout << "  EARLY EXIT (best=" 
+                              << (seqs.empty() ? 0.0f : seqs[0].score)
+                              << ")\n");
+
+                outputs.emplace(
+                    target,
+                    seqs.empty() ? std::vector<std::string>{} : seqs[0].path
+                );
+
                 it = sequences.erase(it);
                 continue;
             }
 
             size_t keep = 0;
-            while (keep < seqs.size() && keep < BEAM_WIDTH && seqs[keep].score >= threshold) ++keep;
-            seqs.resize(keep);
+            while (keep < seqs.size() &&
+                   keep < BEAM_WIDTH &&
+                   seqs[keep].score >= threshold)
+                ++keep;
 
+            LOG(std::cout << "  Keeping " << keep << " candidates\n");
+
+            seqs.resize(keep);
             ++it;
         }
     }
-    //Add the highest candidate for each remaining target sequence
-    for(auto &[target, seqs]: sequences) {
+
+    // ---------------- FINAL ASSIGNMENTS ----------------
+    for (auto &[target, seqs] : sequences) {
+        LOG(
+            std::cout << "FINAL target len=" << target.size()
+                      << " score=" << seqs[0].score << "\n";
+        );
         outputs[target] = seqs[0].path;
     }
-    
-    for(auto &[key, output]: outputs) {
+
+    // ---------------- OUTPUT ----------------
+    LOG(std::cout << "\nRESULTS\n");
+
+    for (auto &[key, output] : outputs) {
         std::cout << "\n" << seq_to_name[key] << ":";
-        for(auto &piece: output) std::cout << " " << piece;
+        for (auto &piece : output)
+            std::cout << " " << piece;
     }
+
     std::cout << "\n";
 }

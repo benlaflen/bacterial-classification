@@ -91,8 +91,8 @@ int main(int argc, char* argv[]) {
                         std::move(new_path),
                         0
                     });
-                    next_seqs.push_back(n);
                     child_categories[child].push_back(&n);
+                    next_seqs.push_back(std::move(n));
                 }
 
                 sequences[target] = next_seqs;
@@ -113,28 +113,23 @@ int main(int argc, char* argv[]) {
         }
     
         //for each sequence
-        for(auto &[target, seqs]: sequences) {
-            //sort sequence
-            std::sort(seqs.begin(), seqs.end(),
-                [](const sequence& a, const sequence& b) {
-                    return a.score > b.score; // higher first
-                });
+        for (auto it = sequences.begin(); it != sequences.end(); ) {
+            auto &target = it->first;
+            auto &seqs   = it->second;
 
-            //if the top seq in sequence is below threshold, sequence id is just the top seq minus last term
-            if(seqs[0].score < threshold) {
-                outputs.emplace(target, seqs[0].path);
-                sequences.erase(target);
+            std::sort(seqs.begin(), seqs.end(), [](auto& a, auto& b){ return a.score > b.score; });
+
+            if (seqs.empty() || seqs[0].score < threshold) {
+                outputs.emplace(target, seqs.empty() ? std::vector<std::string>{} : seqs[0].path);
+                it = sequences.erase(it);
+                continue;
             }
 
-            //Otherwise keep top n seq in each sequence
             size_t keep = 0;
-            while (keep < seqs.size() &&
-                keep < BEAM_WIDTH &&
-                seqs[keep].score >= threshold) {
-                ++keep;
-            }
-
+            while (keep < seqs.size() && keep < BEAM_WIDTH && seqs[keep].score >= threshold) ++keep;
             seqs.resize(keep);
+
+            ++it;
         }
     }
     //Add the highest candidate for each remaining target sequence

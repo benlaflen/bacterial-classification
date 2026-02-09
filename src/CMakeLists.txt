@@ -18,6 +18,7 @@ target_compile_features(hvlib
 
 target_compile_options(hvlib
     PRIVATE
+        $<$<CONFIG:Debug>:-g -O0>
         $<$<CONFIG:Release>:-O3 -march=native -ffast-math>
         $<$<CONFIG:RelWithDebInfo>:-O3 -march=native>
 )

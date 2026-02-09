@@ -25,7 +25,7 @@ struct sequence {
 };
 
 int main(int argc, char* argv[]) {
-    if(argc != 4) throw std::runtime_error("Usage: propogate-children sequence-directory taxonomy-file input-fasta");
+    if(argc != 4) throw std::runtime_error("Usage: identify sequence-directory taxonomy-file input-fasta");
 
     Hierarchy tree = Hierarchy(argv[1], argv[2]);
     HVCache cache = HVCache();

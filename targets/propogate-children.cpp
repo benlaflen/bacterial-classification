@@ -16,7 +16,7 @@ const std::vector<std::string> ORDER = {
 int main(int argc, char* argv[]) {
     HVCache cache = HVCache();
     std::cout << "\nCache size is " << std::to_string(CACHE_SIZE) << " entries (" << std::to_string(CACHE_BYTES) << "b)\n";
-    std::vector<int> counts(100,0);
+    std::vector<int> counts(101,0);
 
     if(argc != 3) throw std::runtime_error("Usage: propogate-children sequence-directory taxonomy-file");
 

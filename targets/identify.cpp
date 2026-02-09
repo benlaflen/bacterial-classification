@@ -16,7 +16,7 @@
     #define LOG(x) do {} while(0)
 #endif
 
-constexpr float threshold = 0.65;
+constexpr float threshold = 0.0;
 constexpr int BEAM_WIDTH = 5;
 
 struct sequence {

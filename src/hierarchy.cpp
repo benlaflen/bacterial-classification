@@ -8,6 +8,13 @@
 
 using namespace std;
 
+static inline std::string normalize_category(std::string s) {
+    for (char& c : s) {
+        if (c == ' ') c = '_';
+    }
+    return s;
+}
+
 Hierarchy::Hierarchy(std::string seq_dir, std::string taxes) : seq_dir(seq_dir), taxes(taxes) {
     unordered_map<string, unordered_set<string>> tmp;
     ifstream in(taxes);
@@ -31,8 +38,9 @@ Hierarchy::Hierarchy(std::string seq_dir, std::string taxes) : seq_dir(seq_dir),
         stringstream ts(tax);
         while (getline(ts, tok, ';')) {
             tok.erase(0, tok.find_first_not_of(" "));
-            if (tok.find("__") != string::npos && !tok.ends_with("__"))
-                ranks.push_back(tok);
+            if (tok.find("__") != string::npos && !tok.ends_with("__")) {
+                ranks.push_back(normalize_category(tok));
+            }
         }
 
         for (size_t i = 1; i < ranks.size(); ++i) {
@@ -47,6 +55,7 @@ Hierarchy::Hierarchy(std::string seq_dir, std::string taxes) : seq_dir(seq_dir),
 }
 
 const std::vector<std::string> &Hierarchy::get_sequences(std::string category){
+    category = normalize_category(category);
     auto it = seq_cache.find(category);
     if (it != seq_cache.end())
         return it->second;
@@ -74,6 +83,7 @@ const std::vector<std::string> &Hierarchy::get_sequences(std::string category){
 }
 
 void Hierarchy::append_sequence(string category, string seq) {
+    category = normalize_category(category);
     // 1. Update in-memory cache
     auto it = seq_cache.find(category);
     if(it != seq_cache.end()) {
@@ -112,7 +122,8 @@ const std::vector<std::string> &Hierarchy::get_children(std::string category) {
 }
 
 string Hierarchy::make_seq_id(const string& category) {
-    auto it = seq_cache.find(category);
+    auto norm = normalize_category(category);
+    auto it = seq_cache.find(norm);
     size_t n = (it == seq_cache.end()) ? 0 : it->second.size();
-    return category + "_appended_" + to_string(n);
+    return norm + "_appended_" + to_string(n);
 }

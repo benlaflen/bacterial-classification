@@ -94,9 +94,8 @@ int main(int argc, char* argv[]) {
                     child_categories[child].push_back(&n);
                     next_seqs.push_back(std::move(n));
                 }
-
-                sequences[target] = next_seqs;
             }
+            sequences[target] = next_seqs;
         }
 
         //For child category in children

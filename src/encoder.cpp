@@ -3,6 +3,7 @@
 #include <iostream>
 #include <assert.h>
 
+#define SIM_STEP 15
 
 constexpr char ALPHABET[4] = {'A','C','G','T'};
 template <typename F>
@@ -72,7 +73,7 @@ HV_16 HVCache::compute(const std::string& seq) {
     for (int index = 0; index < seq.size() - channel; ++index) {
 
         // Get binder for this window
-        auto binder = kmers.find(seq.substr(index, index+channel));
+        auto binder = kmers.find(seq.substr(index, channel));
         if(binder != kmers.end()) {
             binders[batch_count++] = binder->second;
         }
@@ -90,38 +91,61 @@ HV_16 HVCache::compute(const std::string& seq) {
     return hv;
 }
 
-void HVCache::precompute(const std::string& seq) {
-    HV_16 window = get(seq.substr(0,SEQUENCE_LENGTH));
+void HVCache::precompute(const std::string& seq)
+{
+    const size_t seq_len = seq.size();
+    if (seq_len < SEQUENCE_LENGTH) return;
 
-    for(int index = 1; index < seq.size() - SEQUENCE_LENGTH; index++) {
-        std::string key = seq.substr(index, SEQUENCE_LENGTH);
-        // Fast path: cache hit
-        auto it = map.find(key);
-        if (it != map.end()) {
-            // move to front of LRU
+    std::string_view seq_view(seq);
+
+    // Precompute all kmer pointers once
+    const size_t kmer_count = seq_len - channel + 1;
+    std::vector<const HV*> kmer_ptrs(kmer_count);
+
+    for (size_t i = 0; i < kmer_count; ++i)
+    {
+        std::string_view kmer(seq_view.data() + i, channel);
+        kmer_ptrs[i] = &kmers.find(std::string(kmer))->second;
+    }
+
+    HV_16 window = get(std::string(seq_view.substr(0, SEQUENCE_LENGTH)));
+
+    for (size_t index = SIM_STEP;
+         index < seq_len - SEQUENCE_LENGTH;
+         index += SIM_STEP)
+    {
+        std::string_view key_view(seq_view.data() + index, SEQUENCE_LENGTH);
+
+        auto it = map.find(std::string(key_view));
+        if (it != map.end())
+        {
             lru.splice(lru.begin(), lru, it->second.lru_it);
             window = it->second.hv;
             continue;
         }
 
-        // Cache miss: compute
-        auto oldb = kmers.find(seq.substr(index-1, channel));
-        assert(oldb != kmers.end());
-        auto newb = kmers.find(seq.substr(index+SEQUENCE_LENGTH-(1+channel), channel));
-        assert(newb != kmers.end());
+        const HV* oldb[SIM_STEP];
+        const HV* newb[SIM_STEP];
 
-        replace_hv(window, oldb->second, newb->second);
+        for (size_t x = 0; x < SIM_STEP; ++x)
+        {
+            oldb[x] = kmer_ptrs[index + x - SIM_STEP];
+            newb[x] = kmer_ptrs[index + SEQUENCE_LENGTH + x - (SIM_STEP + channel)];
+        }
 
-        // Evict if needed
-        if (map.size() >= capacity) {
+        replace_batch(window, oldb, newb, SIM_STEP);
+
+        if (map.size() >= capacity)
+        {
             const std::string& victim = lru.back();
             map.erase(victim);
             lru.pop_back();
         }
 
-        // Insert new entry
+        std::string key(key_view);
+
         lru.push_front(key);
-        auto [new_it, inserted] = map.emplace(
+        map.emplace(
             key,
             Entry{HV_16(window), lru.begin()}
         );
@@ -130,7 +154,7 @@ void HVCache::precompute(const std::string& seq) {
 
 SIM HVCache::similarity(const std::string &l, const std::string &r) {
     SIM sim{0, -1.0f};
-    for(int x = 0; x < r.size()-SEQUENCE_LENGTH; x ++ ) {
+    for(int x = 0; x < r.size()-SEQUENCE_LENGTH; x += SIM_STEP ) {
         HV_16 ref = get(r.substr(x,SEQUENCE_LENGTH));
         float new_score = cosine(get(l), ref);
         if(new_score > sim.score) {

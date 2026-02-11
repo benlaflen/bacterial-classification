@@ -23,4 +23,6 @@ HV_16 make_accumulator();
 
 void superpose_batch(HV_16& acc, const HV* binders, size_t batch_size);
 
+void replace_hv(HV_16& acc, const HV& old_hv, const HV& new_hv);
+
 float cosine(const HV_16 &l, const HV_16 &r);

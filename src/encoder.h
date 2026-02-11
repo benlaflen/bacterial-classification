@@ -5,16 +5,27 @@
 #include "HV.h"
 
 #define DEFAULT_WINDOW 5
+#define SEQUENCE_LENGTH 125
 
 constexpr size_t CACHE_BYTES = 1'000'000'000;
 constexpr size_t HV_MEM = HV_SIZE * 2;
 constexpr size_t CACHE_SIZE = CACHE_BYTES / HV_MEM;
 
+struct SIM {
+    size_t pos;
+    float score;
+};
+
 class HVCache {
 public:
-    explicit HVCache(size_t max_entries = CACHE_SIZE, std::vector<int> k_mer_channels = {DEFAULT_WINDOW});
+    explicit HVCache(size_t max_entries = CACHE_SIZE, size_t channel = DEFAULT_WINDOW);
 
     const HV_16& get(const std::string& seq);
+
+    void precompute(const std::string& seq);
+
+    //Require that query is SEQUENCE_LENGTH long
+    SIM similarity(const std::string &query, const std::string &reference);
 
 private:
     struct Entry {
@@ -25,8 +36,9 @@ private:
     size_t capacity;
     std::list<std::string> lru;
     std::unordered_map<std::string, Entry> map;
+    size_t channel;
 
-    std::vector<int> k_mer_channels;
+    std::unordered_map<std::string, HV> kmers;
 
     HV_16 compute(const std::string& seq);
 };

@@ -136,9 +136,10 @@ int main(int argc, char* argv[]) {
             );
 
             for (auto *seq : seqs) {
+                cache.precompute(seq->sequence);
                 float best_score = -1.0f;
                 for (const auto &cat_seq : tree.get_sequences(child)) {
-                    float score = cosine(cache.get(cat_seq), cache.get(seq->sequence));
+                    float score = cache.similarity(cat_seq, seq->sequence).score;
                     best_score = std::max(
                         best_score,
                         score

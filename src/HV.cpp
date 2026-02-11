@@ -215,6 +215,69 @@ void superpose_batch(
     }
 }
 
+void replace_hv(
+    HV_16& acc,
+    const HV& old_hv,
+    const HV& new_hv
+) {
+    int16_t* __restrict ap = acc.data();
+
+    const size_t full_words = HV_SIZE / 64;
+    size_t bit_base = 0;
+
+    for (size_t w = 0; w < full_words; ++w) {
+        int16_t* block = ap + bit_base;
+
+        uint64_t old_word = old_hv[w];
+        uint64_t new_word = new_hv[w];
+
+        // Bits to subtract: old but not new
+        uint64_t sub = old_word & ~new_word;
+        // Bits to add: new but not old
+        uint64_t add = new_word & ~old_word;
+
+        while (sub) {
+            unsigned bit = __builtin_ctzll(sub);
+            block[bit] -= 2;
+            sub &= sub - 1;
+        }
+
+        while (add) {
+            unsigned bit = __builtin_ctzll(add);
+            block[bit] += 2;
+            add &= add - 1;
+        }
+
+        bit_base += 64;
+    }
+
+    // Tail
+    const size_t tail = HV_SIZE - bit_base;
+    if (tail) {
+        int16_t* block = ap + bit_base;
+
+        uint64_t old_word = old_hv[full_words];
+        uint64_t new_word = new_hv[full_words];
+
+        uint64_t sub = old_word & ~new_word;
+        uint64_t add = new_word & ~old_word;
+
+        while (sub) {
+            unsigned bit = __builtin_ctzll(sub);
+            if (bit >= tail) break;
+            block[bit] -= 2;
+            sub &= sub - 1;
+        }
+
+        while (add) {
+            unsigned bit = __builtin_ctzll(add);
+            if (bit >= tail) break;
+            block[bit] += 2;
+            add &= add - 1;
+        }
+    }
+}
+
 
 #ifdef NORM_COSINE
 float cosine(const HV_16& l, const HV_16& r) {

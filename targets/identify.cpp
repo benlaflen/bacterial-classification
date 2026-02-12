@@ -83,7 +83,7 @@ int main(int argc, char* argv[]) {
     }
 
     // ---------------- TAXONOMY WALK ----------------
-    for (int x = 0; x < 7; x++) {
+    for (int x = 0; x < 6; x++) {
 
         LOG(std::cout << "\n=== TAXONOMY LEVEL " << x << " ===\n");
 

@@ -95,6 +95,7 @@ void HVCache::precompute(const std::string& seq)
 {
     const size_t seq_len = seq.size();
     if (seq_len < SEQUENCE_LENGTH) return;
+    auto empty_vec = empty_hv();
 
     std::string_view seq_view(seq);
 
@@ -105,7 +106,9 @@ void HVCache::precompute(const std::string& seq)
     for (size_t i = 0; i < kmer_count; ++i)
     {
         std::string_view kmer(seq_view.data() + i, channel);
-        kmer_ptrs[i] = &kmers.find(std::string(kmer))->second;
+        auto it = kmers.find(std::string(kmer));
+        if(it != kmers.end()) kmer_ptrs[i] = &it->second;
+        else kmer_ptrs[i] = &empty_vec;
     }
 
     HV_16 window = get(std::string(seq_view.substr(0, SEQUENCE_LENGTH)));

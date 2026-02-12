@@ -231,6 +231,7 @@ def main():
     print(f"Outputs:")
     print(f"  {args.out_prefix}.fastq")
     print(f"  {args.out_prefix}_metadata.tsv")
+    print(f"  {args.out_prefix}.fasta")
 
 
 if __name__ == "__main__":

@@ -132,30 +132,20 @@ int main(int argc, char* argv[]) {
 
         // ---------------- SCORING ----------------
         for (auto &[child, seqs] : child_categories) {
-            LOG(
-                std::cout << " Scoring category " << child
-                          << " (" << seqs.size() << " candidates)\n";
-            );
 
-            for (auto *seq : seqs) {
-                cache.precompute(seq->sequence);
-                float best_score = -1.0f;
-                for (const auto &cat_seq : tree.get_sequences(child)) {
+            const auto &references = tree.get_sequences(child);
+
+            for (const auto &cat_seq : references) {
+
+                // Precompute reference once
+                cache.precompute(cat_seq);
+
+                // Compare all queries against this cached reference
+                for (auto *seq : seqs) {
                     float score = cache.similarity(cat_seq, seq->sequence).score;
-                    best_score = std::max(
-                        best_score,
-                        score
-                    );
-        //            LOG(std::cout << "      score=" << score << "\n");
+
+                    seq->score = std::max(seq->score, score);
                 }
-
-                seq->score = best_score;
-
-                LOG(
-                    std::cout << "   best score=" << best_score
-                              << " target_len=" << seq->sequence.size()
-                              << "\n";
-                );
             }
         }
 

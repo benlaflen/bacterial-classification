@@ -26,7 +26,7 @@ def parse_fasta(path):
             if line.startswith(">"):
                 if sid is not None:
                     seqs[sid] = "".join(buf)
-                sid = line[1:].split()[0]
+                sid = line[1:].split()[0].strip()
                 buf = []
             else:
                 buf.append(line)
@@ -126,7 +126,7 @@ def main():
     log(f"Total reads = {args.total_reads}")
 
     seq_dir = Path(args.seq_dir)
-    categories = sorted(p for p in seq_dir.iterdir() if p.suffix == ".fasta")
+    categories = sorted(p for p in seq_dir.iterdir() if p.suffix == ".fasta" and p.name.startswith("s__"))
 
     if len(categories) < args.num_taxa:
         raise SystemExit("Not enough categories available")
@@ -156,9 +156,6 @@ def main():
             log(f"  Target reads = {n_reads}")
             category = cat_path.stem
             seqs = parse_fasta(cat_path)
-            print("FASTA example ID:", next(iter(seqs.keys())))
-            print("Taxonomy example key:", next(iter(taxonomy_lookup.keys())))
-            sys.exit()
 
             template_ids = list(seqs.keys())
             if len(template_ids) > args.max_templates_per_taxon:
@@ -172,6 +169,7 @@ def main():
                 tpl_id = f"tpl{j:06d}"
                 tpl_to_orig[tpl_id] = orig_id
                 tpl_to_tax[tpl_id] = taxonomy_lookup.get(orig_id, "NA")
+                if tpl_to_tax == "NA": print("id: '" + orig_id + "'")
                 templates.append((tpl_id, seqs[orig_id]))
 
             tmp_fa = tmpdir / "templates.fa"
@@ -203,9 +201,10 @@ def main():
 
             for h, seq, qual in read_fastq(fq_path):
                 raw = h[1:].split()[0]
-                tpl_id = raw.split("-")[0]           # safe now
+                tpl_id = raw.split(":")[0]           # safe now
                 orig_template = tpl_to_orig.get(tpl_id, tpl_id)
                 taxonomy = tpl_to_tax.get(tpl_id, "NA")
+                if taxonomy == "NA": print("tax: '" + tpl_id + "'")
 
                 final_len = random.randint(args.min_read_len, args.max_read_len)
                 if final_len > len(seq):

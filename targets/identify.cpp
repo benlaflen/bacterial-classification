@@ -33,8 +33,8 @@ struct sequence {
 };
 
 int main(int argc, char* argv[]) {
-    if(argc != 4)
-        throw std::runtime_error("Usage: identify sequence-directory taxonomy-file input-fasta");
+    if(argc != 5)
+        throw std::runtime_error("Usage: identify sequence-directory taxonomy-file input-fasta output-file");
 
     Hierarchy tree = Hierarchy(argv[1], argv[2]);
     HVCache cache;
@@ -206,13 +206,24 @@ int main(int argc, char* argv[]) {
     }
 
     // ---------------- OUTPUT ----------------
-    LOG(std::cout << "\nRESULTS\n");
+    std::ostream* out_stream = &std::cout;
+    std::ofstream file;
 
-    for (auto &[key, output] : outputs) {
-        std::cout << "\n" << seq_to_name[key] << ":";
-        for (auto &piece : output)
-            std::cout << " " << piece;
+    if (std::filesystem::exists(argv[4])) {
+        file.open(argv[4]);
+        if (file)
+            out_stream = &file;
     }
 
-    std::cout << "\n";
+    std::ostream& out = *out_stream;
+
+    LOG(out << "\nRESULTS\n");
+
+    for (auto &[key, output] : outputs) {
+        out << "\n" << seq_to_name[key] << ":";
+        for (auto &piece : output)
+            out << " " << piece;
+    }
+
+    out << "\n";
 }

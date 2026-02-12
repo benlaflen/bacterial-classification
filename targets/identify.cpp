@@ -142,7 +142,7 @@ int main(int argc, char* argv[]) {
 
                 // Compare all queries against this cached reference
                 for (auto *seq : seqs) {
-                    float score = cache.similarity(cat_seq, seq->sequence).score;
+                    float score = cache.similarity(seq->sequence, cat_seq).score;
 
                     seq->score = std::max(seq->score, score);
                 }

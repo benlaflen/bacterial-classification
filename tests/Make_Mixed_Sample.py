@@ -143,6 +143,7 @@ def main():
         reads_per_taxon[random.randrange(len(reads_per_taxon))] += 1
 
     out_fastq = open(f"{args.out_prefix}.fastq", "w")
+    out_fasta = open(f"{args.out_prefix}.fasta", "w")
     out_meta = open(f"{args.out_prefix}_metadata.tsv", "w")
     out_meta.write("read_id\ttaxonomy\ttemplate_id\torig_len\tfinal_len\n")
 
@@ -217,12 +218,14 @@ def main():
                 rid = f"read_{read_counter:08d}"
 
                 out_fastq.write(f"@{rid}\n{seq}\n+\n{qual}\n")
+                out_fasta.write(f">{rid}\n{seq}\n")
                 out_meta.write(
                     f"{rid}\t{taxonomy}\t{orig_template}\t{args.read_len}\t{final_len}\n"
                 )
 
     out_fastq.close()
     out_meta.close()
+    out_fasta.close()
 
     print(f"Generated {read_counter} reads from {args.num_taxa} taxa.")
     print(f"Outputs:")

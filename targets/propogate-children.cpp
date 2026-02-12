@@ -7,7 +7,7 @@
 #include "HV.h"
 #include "hierarchy.h"
 
-#define THRESHOLD 0.65
+#define THRESHOLD 0.5
 
 const std::vector<std::string> ORDER = {
     "s__", "g__", "f__", "o__", "c__", "p__", "k__"
@@ -17,6 +17,7 @@ int main(int argc, char* argv[]) {
     HVCache cache = HVCache();
     std::cout << "\nCache size is " << std::to_string(CACHE_SIZE) << " entries (" << std::to_string(CACHE_BYTES) << "b)\n";
     std::vector<int> counts(101,0);
+    int total_propogated = 0;
 
     if(argc != 3) throw std::runtime_error("Usage: propogate-children sequence-directory taxonomy-file");
 
@@ -52,6 +53,7 @@ int main(int argc, char* argv[]) {
                 if (best_score < THRESHOLD ) {
                     tree.append_sequence(parent, child);
                     added_seqs.push_back(child);
+                    total_propogated+=1;
                 }
             }
         }
@@ -60,4 +62,5 @@ int main(int argc, char* argv[]) {
     for(int x = 0; x < 100; x++) {
         std::cout <<"\n" << std::to_string(x/100) << "," << std::to_string(counts[x]);
     }
+    std::cout << "\n\nPropogated: " << std::to_string(total_propogated) << "\n";
 }

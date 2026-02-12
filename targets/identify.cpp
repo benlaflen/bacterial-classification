@@ -135,12 +135,12 @@ int main(int argc, char* argv[]) {
 
             const auto &references = tree.get_sequences(child);
 
-            for (const auto &cat_seq : references) {
-
-                LOG(
+            LOG(
                 std::cout << " Scoring category " << child
                           << " (" << seqs.size() << " candidates)\n";
             );
+
+            for (const auto &cat_seq : references) {
 
                 // Precompute reference once
                 cache.precompute(cat_seq);

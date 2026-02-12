@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <array>
 
 constexpr size_t HV_SIZE = 10'000;
 

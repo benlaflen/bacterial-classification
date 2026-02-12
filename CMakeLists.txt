@@ -14,6 +14,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
         "Choose the type of build." FORCE)
 endif()
 
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+
 option(NORM_COSINE "Use normalized cosine similarity" OFF)
 
 # ---- Subdirectories ----

@@ -115,9 +115,10 @@ vector<string> Hierarchy::get_order(string order) {
     return categories;
 }
 
-const std::vector<std::string> &Hierarchy::get_children(std::string category) {
+const std::vector<std::string> * Hierarchy::get_children(std::string category) {
     auto it = children.find(category);
-    if (it != children.end()) return it->second;
+    if (it != children.end()) return &(it->second);
+    return nullptr;
     throw std::runtime_error("No category " + category + " to get children for");
 }
 

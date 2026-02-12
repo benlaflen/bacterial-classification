@@ -31,7 +31,7 @@ int main(int argc, char* argv[]) {
             auto& parent_seqs = tree.get_sequences(parent);
 
             std::vector<std::string> child_seqs;
-            for (const auto& child : tree.get_children(parent)) {
+            for (const auto& child : *tree.get_children(parent)) {
                 if (!child.starts_with(child_rank)) continue;
                 auto& cs = tree.get_sequences(child);
                 child_seqs.insert(child_seqs.end(), cs.begin(), cs.end());

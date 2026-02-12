@@ -24,9 +24,11 @@ struct sequence {
     std::vector<std::string> path;
     float score;
 
-    std::vector<std::string> get_children(Hierarchy &tree) {
+    const std::vector<std::string>get_children(Hierarchy &tree) {
         if (path.empty()) return tree.get_order("p__");
-        return tree.get_children(path.back());
+        auto children = tree.get_children(path.back());
+        if(!children) return {path.back()};
+        return *children;
     }
 };
 

@@ -14,7 +14,7 @@ public:
 
     std::vector<std::string> get_order(std::string order);
 
-    const std::vector<std::string> &get_children(std::string category);
+    const std::vector<std::string> *get_children(std::string category);
 
 private:
     std::string make_seq_id(const std::string& category);

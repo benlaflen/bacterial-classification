@@ -137,6 +137,11 @@ int main(int argc, char* argv[]) {
 
             for (const auto &cat_seq : references) {
 
+                LOG(
+                std::cout << " Scoring category " << child
+                          << " (" << seqs.size() << " candidates)\n";
+            );
+
                 // Precompute reference once
                 cache.precompute(cat_seq);
 

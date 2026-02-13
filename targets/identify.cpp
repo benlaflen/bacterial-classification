@@ -22,6 +22,7 @@ constexpr int BEAM_WIDTH = 5;
 struct sequence {
     std::string sequence;
     std::vector<std::string> path;
+    std::vector<float> path_scores;
     float score;
 
     const std::vector<std::string>get_children(Hierarchy &tree) {
@@ -108,7 +109,7 @@ int main(int argc, char* argv[]) {
                 LOG(
                     std::cout << "  Expanding [";
                     for (auto &p : seq.path) std::cout << p << " ";
-                    std::cout << "] -> " << children.size() << " children\n";
+                    std::cout << "] (" << std::to_string(seq.score) << ") -> " << children.size() << " children\n";
                 );
 
                 for (auto &child : children) {
@@ -116,6 +117,8 @@ int main(int argc, char* argv[]) {
 
                     std::vector<std::string> new_path = seq.path;
                     new_path.push_back(child);
+
+                    std::vector<float> new_scores = seq.path_scores;
 
                     next_seqs.push_back(sequence{
                         seq.sequence,
@@ -151,6 +154,12 @@ int main(int argc, char* argv[]) {
 
                     seq->score = std::max(seq->score, score);
                 }
+            }
+        }
+
+        for (auto &[target, seqs] : sequences) {
+            for (auto &seq : seqs) {
+                seq.path_scores.push_back(seq.score);
             }
         }
 
@@ -216,8 +225,21 @@ int main(int argc, char* argv[]) {
 
     for (auto &[key, output] : outputs) {
         out << "\n" << seq_to_name[key] << ":";
-        for (auto &piece : output)
-            out << " " << piece;
+
+        const auto &seqs = sequences.count(key)
+            ? sequences[key]
+            : std::vector<sequence>{};
+
+        if (!seqs.empty()) {
+            const auto &best = seqs[0];
+            for (size_t i = 0; i < best.path.size(); ++i) {
+                out << " "
+                    << best.path[i]
+                    << " ("
+                    << best.path_scores[i]
+                    << ")";
+            }
+        }
     }
 
     out << "\n";

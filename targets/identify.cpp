@@ -81,7 +81,7 @@ int main(int argc, char* argv[]) {
     std::unordered_map<std::string, std::vector<sequence>> sequences;
     for (auto &seq : seqs) {
         sequences.emplace(seq, std::vector<sequence>{
-            sequence{seq, {}, 0.0f}
+            sequence{seq, {}, {}, 0.0f}
         });
     }
 
@@ -123,6 +123,7 @@ int main(int argc, char* argv[]) {
                     next_seqs.push_back(sequence{
                         seq.sequence,
                         std::move(new_path),
+                        new_scores,
                         0.0f
                     });
 

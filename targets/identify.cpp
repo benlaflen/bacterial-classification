@@ -81,7 +81,7 @@ int main(int argc, char* argv[]) {
     std::unordered_map<std::string, std::vector<sequence>> sequences;
     for (auto &seq : seqs) {
         sequences.emplace(seq, std::vector<sequence>{
-            sequence{seq, {}, {}, 0.0f}
+            sequence{seq, {}, {}, -1.0f}
         });
     }
 
@@ -124,7 +124,7 @@ int main(int argc, char* argv[]) {
                         seq.sequence,
                         std::move(new_path),
                         new_scores,
-                        0.0f
+                        -1.0f
                     });
 
                     child_categories[child].push_back(&next_seqs.back());
@@ -176,7 +176,7 @@ int main(int argc, char* argv[]) {
 
             if (seqs.empty() || seqs[0].score < threshold) {
                 LOG(std::cout << "  EARLY EXIT (best=" 
-                              << (seqs.empty() ? 0.0f : seqs[0].score)
+                              << (seqs.empty() ? -1.0f : seqs[0].score)
                               << ")\n");
 
                 outputs.emplace(

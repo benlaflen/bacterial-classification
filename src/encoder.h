@@ -39,6 +39,7 @@ private:
     size_t channel;
 
     std::unordered_map<std::string, HV> kmers;
+    std::unordered_map<size_t, HV> positions;
 
     HV_16 compute(const std::string& seq);
 };

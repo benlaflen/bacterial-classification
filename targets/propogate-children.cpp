@@ -7,11 +7,29 @@
 #include "HV.h"
 #include "hierarchy.h"
 
-#define THRESHOLD 0.5
+#define THRESHOLD 0.33
 
 const std::vector<std::string> ORDER = {
-    "s__", "g__", "f__", "o__", "c__", "p__", "k__"
+    "k__", "p__", "c__", "o__", "f__", "g__", "s__"
 };
+
+void collect_descendant_sequences(
+    Hierarchy& tree,
+    const std::string& node,
+    std::vector<std::string>& out)
+{
+
+    // Recurse into children
+    auto children = tree.get_children(node);
+    if (!children) return;
+
+    for (const auto& child : *children) {
+        // Add sequences at this node
+        auto& seqs = tree.get_sequences(child);
+        out.insert(out.end(), seqs.begin(), seqs.end());
+        collect_descendant_sequences(tree, child, out);
+    }
+}
 
 int main(int argc, char* argv[]) {
     HVCache cache = HVCache();
@@ -31,20 +49,16 @@ int main(int argc, char* argv[]) {
 
             auto& parent_seqs = tree.get_sequences(parent);
 
-            std::vector<std::string> child_seqs;
-            for (const auto& child : *tree.get_children(parent)) {
-                if (!child.starts_with(child_rank)) continue;
-                auto& cs = tree.get_sequences(child);
-                child_seqs.insert(child_seqs.end(), cs.begin(), cs.end());
-            }
+            std::vector<std::string> descendant_seqs;
+            collect_descendant_sequences(tree, parent, descendant_seqs);
 
             // === YOUR LOGIC HERE ===
             // parent_seqs : sequences directly at this node
             // child_seqs  : union of all immediate children
             std::vector<std::string> added_seqs;
-            for(int x = 0; x < child_seqs.size(); x++) {
-                const auto &child = child_seqs[x];
-                std::cout << "\rAnalyzing " << parent << " " << std::to_string(x) << "/" << std::to_string(child_seqs.size()) << "        " << std::flush;
+            for(int x = 0; x < descendant_seqs.size(); x++) {
+                const auto &child = descendant_seqs[x];
+                std::cout << "\rAnalyzing " << parent << " " << std::to_string(x) << "/" << std::to_string(descendant_seqs.size()) << "        " << std::flush;
                 float best_score = 0;
                 auto child_hv = cache.get(child);
                 for(const auto &parent_seq : parent_seqs) best_score = std::max(best_score, cosine(child_hv, cache.get(parent_seq)));

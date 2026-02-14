@@ -234,7 +234,7 @@ float cosine(const HV_16& l, const HV_16& r) {
     }
 
     if (norm_l == 0 || norm_r == 0)
-        return 0.0f;
+        return -1.0f;
 
     return static_cast<float>(
         2.0 * ((dot / (std::sqrt((double)norm_l) * std::sqrt((double)norm_r))) - 0.5f)

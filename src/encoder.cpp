@@ -2,10 +2,35 @@
 #include <chrono>
 #include <iostream>
 #include <assert.h>
+#include <unordered_set>
+#include <random>
 
-#define SIM_STEP 15
+#define SIM_STEP 1
 
 constexpr char ALPHABET[4] = {'A','C','G','T'};
+
+static inline char rc_base(char c) {
+    switch (c) {
+        case 'A': return 'T';
+        case 'C': return 'G';
+        case 'G': return 'C';
+        case 'T': return 'A';
+        default:  return 'N';
+    }
+}
+
+static std::string revcomp(const std::string& s) {
+    std::string r(s.size(), 'A');
+    for (size_t i = 0; i < s.size(); ++i)
+        r[s.size() - 1 - i] = rc_base(s[i]);
+    return r;
+}
+
+static std::string canonical(const std::string& s) {
+    std::string rc = revcomp(s);
+    return (rc < s) ? rc : s;
+}
+
 template <typename F>
 void for_each_nmer(int n, F&& fn) {
     const uint64_t total = 1ULL << (2 * n); // 4^n
@@ -22,16 +47,33 @@ void for_each_nmer(int n, F&& fn) {
 }
 
 HVCache::HVCache(size_t max_entries, size_t channel)
-    : capacity(max_entries), channel(channel) {
-        //Build k-mer map
-        for_each_nmer(channel, [&, channel](const std::string& s) {
-            HV binder = empty_hv();
-            for (int it = 0; it < channel; ++it) {
-                mult(binder, get_base_hv(s[it]), binder, it);
-            }
-            kmers.emplace(s, std::move(binder));
-        });
-    }
+    : capacity(max_entries), channel(channel)
+{
+    for_each_nmer(channel, [&](const std::string& s) {
+
+        std::string rc = revcomp(s);
+        std::string canon = (rc < s) ? rc : s;
+
+        // If canonical already assigned, reuse it
+        auto it = kmers.find(canon);
+        if (it != kmers.end()) {
+            kmers.emplace(s, it->second);
+            return;
+        }
+
+        // First time seeing this canonical pair
+        HV binder = empty_hv();
+
+        for (int i = 0; i < channel; ++i)
+            mult(binder, get_base_hv(canon[i]), binder, i);
+
+        kmers.emplace(canon, binder);
+        kmers.emplace(s, binder);
+
+        if (rc != s)
+            kmers.emplace(rc, binder);
+    });
+}
 
 const HV_16& HVCache::get(const std::string& seq) {
 
@@ -72,12 +114,12 @@ HV_16 HVCache::compute(const std::string& seq) {
     size_t batch_count = 0;
     for (int index = 0; index < seq.size() - channel; ++index) {
 
-        // Get binder for this window
-        auto binder = kmers.find(seq.substr(index, channel));
-        if(binder != kmers.end()) {
-            binders[batch_count++] = binder->second;
-        }
-        // Flush batch
+        auto binder_it = kmers.find(seq.substr(index, channel));
+        if (binder_it == kmers.end())
+            continue;
+
+        const HV& kmerHV = binder_it->second;
+        binders[batch_count++] = kmerHV;
         if (batch_count == BATCH) {
             superpose_batch(hv, binders, batch_count);
             batch_count = 0;
@@ -160,6 +202,7 @@ SIM HVCache::similarity(const std::string &l, const std::string &r) {
     for(int x = 0; x < r.size()-SEQUENCE_LENGTH; x += SIM_STEP ) {
         HV_16 ref = get(r.substr(x,SEQUENCE_LENGTH));
         float new_score = cosine(get(l), ref);
+    //    std::cout << "\n" << std::to_string(new_score);
         if(new_score > sim.score) {
             sim.score = new_score;
             sim.pos = x;

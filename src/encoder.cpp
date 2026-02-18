@@ -112,7 +112,7 @@ HV_16 HVCache::compute(const std::string& seq) {
 
     HV binders[BATCH];
     size_t batch_count = 0;
-    for (int index = 0; index < seq.size() - channel; ++index) {
+    for (int index = 0; index + channel <= seq.size(); ++index) {
 
         auto binder_it = kmers.find(seq.substr(index, channel));
         if (binder_it == kmers.end())
@@ -153,10 +153,10 @@ void HVCache::precompute(const std::string& seq)
         else kmer_ptrs[i] = &empty_vec;
     }
 
-    HV_16 window = get(std::string(seq_view.substr(0, SEQUENCE_LENGTH)));
+    HV_16 window = get(std::string(seq_view.substr(0, std::min(seq_view.size(), static_cast<size_t>(SEQUENCE_LENGTH)))));
 
     for (size_t index = SIM_STEP;
-         index < seq_len - SEQUENCE_LENGTH;
+         index+SEQUENCE_LENGTH < seq_len;
          index += SIM_STEP)
     {
         std::string_view key_view(seq_view.data() + index, SEQUENCE_LENGTH);
@@ -199,7 +199,12 @@ void HVCache::precompute(const std::string& seq)
 
 SIM HVCache::similarity(const std::string &l, const std::string &r) {
     SIM sim{0, -1.0f};
-    for(int x = 0; x < r.size()-SEQUENCE_LENGTH; x += SIM_STEP ) {
+    if(SEQUENCE_LENGTH >= r.size()) {
+        sim.score = cosine(get(l), get(r));
+        return sim;
+    }
+
+    for(int x = 0; x+SEQUENCE_LENGTH < r.size(); x += SIM_STEP ) {
         HV_16 ref = get(r.substr(x,SEQUENCE_LENGTH));
         float new_score = cosine(get(l), ref);
     //    std::cout << "\n" << std::to_string(new_score);

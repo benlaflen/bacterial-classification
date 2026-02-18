@@ -29,6 +29,7 @@ void collect_descendant_sequences(
         out.insert(out.end(), seqs.begin(), seqs.end());
         collect_descendant_sequences(tree, child, out);
     }
+    std::cout << "\n\nFound " << std::to_string(out.size()) << " sequences in " << node;
 }
 
 int main(int argc, char* argv[]) {

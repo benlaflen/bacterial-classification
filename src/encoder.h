@@ -5,7 +5,7 @@
 #include "HV.h"
 
 #define DEFAULT_WINDOW 5
-#define SEQUENCE_LENGTH 125
+#define SEQUENCE_LENGTH 1500
 
 constexpr size_t CACHE_BYTES = 1'000'000'000;
 constexpr size_t HV_MEM = HV_SIZE * 2;

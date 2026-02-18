@@ -59,12 +59,13 @@ int main(int argc, char* argv[]) {
             std::vector<std::string> added_seqs;
             for(int x = 0; x < descendant_seqs.size(); x++) {
                 const auto &child = descendant_seqs[x];
-                std::cout << "\rAnalyzing " << parent << " " << std::to_string(x) << "/" << std::to_string(descendant_seqs.size()) << "        " << std::flush;
+                std::cout << "\nAnalyzing " << parent << " " << std::to_string(x) << "/" << std::to_string(descendant_seqs.size()) << "        " << std::flush;
                 float best_score = 0;
                 auto child_hv = cache.get(child);
                 for(const auto &parent_seq : parent_seqs) best_score = std::max(best_score, cosine(child_hv, cache.get(parent_seq)));
                 for(const auto &parent_seq : added_seqs) best_score = std::max(best_score, cosine(child_hv, cache.get(parent_seq)));
-                counts[static_cast<int>(std::floor(best_score*100))]++;
+                std::cout << "\nBest Score: " << std::to_string(best_score);
+                counts[static_cast<int>(std::floor(best_score))]++;
                 if (best_score < THRESHOLD ) {
                     tree.append_sequence(parent, child);
                     added_seqs.push_back(child);

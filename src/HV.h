@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <array>
 
+#define DEFAULT_WINDOW 5
+
 constexpr size_t HV_SIZE = 10'000;
 
 // 1 bit per dimension, packed

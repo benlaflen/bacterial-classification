@@ -17,7 +17,7 @@
 #endif
 
 constexpr float threshold = 0.0;
-constexpr int BEAM_WIDTH = 5;
+constexpr int BEAM_WIDTH = 8;
 
 struct sequence {
     std::string sequence;
@@ -165,6 +165,7 @@ int main(int argc, char* argv[]) {
         }
 
         // ---------------- BEAM PRUNE ----------------
+        // ---------------- BEAM PRUNE ----------------
         for (auto it = sequences.begin(); it != sequences.end(); ) {
             auto &target = it->first;
             auto &seqs   = it->second;
@@ -172,31 +173,83 @@ int main(int argc, char* argv[]) {
             LOG(std::cout << "  Pre-prune: " << seqs.size() << "\n");
 
             std::sort(seqs.begin(), seqs.end(),
-                      [](auto &a, auto &b) { return a.score > b.score; });
+                    [](auto &a, auto &b) { return a.score > b.score; });
 
             if (seqs.empty() || seqs[0].score < threshold) {
-                LOG(std::cout << "  EARLY EXIT (best=" 
-                              << (seqs.empty() ? -1.0f : seqs[0].score)
-                              << ")\n");
-
                 outputs.emplace(
                     target,
                     seqs.empty() ? std::vector<std::string>{} : seqs[0].path
                 );
-
                 it = sequences.erase(it);
                 continue;
             }
 
-            size_t keep = 0;
-            while (keep < seqs.size() &&
-                   keep < BEAM_WIDTH &&
-                   seqs[keep].score >= threshold)
-                ++keep;
+            const int B = BEAM_WIDTH;
+            const int N = static_cast<int>(seqs[0].path.size()) - 1;
 
-            LOG(std::cout << "  Keeping " << keep << " candidates\n");
+            // If at root depth (N == 0): just keep top B
+            if (N == 0) {
+                if (seqs.size() > B)
+                    seqs.resize(B);
+                ++it;
+                continue;
+            }
 
-            seqs.resize(keep);
+            int allowed_parents = std::max(1, B >> N);
+
+            // ---- Group by parent prefix at depth N-1 ----
+            auto make_prefix = [](const sequence& s, int d) {
+                std::string key;
+                key.reserve(64);
+                for (int i = 0; i <= d; ++i) {
+                    if (i) key.push_back('|');
+                    key += s.path[i];
+                }
+                return key;
+            };
+
+            std::unordered_map<std::string, std::vector<sequence>> grouped;
+
+            for (auto &s : seqs) {
+                auto parent_prefix = make_prefix(s, N - 1);
+                grouped[parent_prefix].push_back(std::move(s));
+            }
+
+            // ---- Score parents by best child ----
+            std::vector<std::pair<std::string, float>> parent_scores;
+
+            for (auto &[prefix, bucket] : grouped) {
+                float best = -1.0f;
+                for (auto &s : bucket)
+                    best = std::max(best, s.score);
+                parent_scores.emplace_back(prefix, best);
+            }
+
+            std::sort(parent_scores.begin(), parent_scores.end(),
+                    [](auto &a, auto &b) { return a.second > b.second; });
+
+            if ((int)parent_scores.size() > allowed_parents)
+                parent_scores.resize(allowed_parents);
+
+            // ---- Keep top B children per selected parent ----
+            std::vector<sequence> kept;
+            kept.reserve(allowed_parents * B);
+
+            for (auto &[prefix, _] : parent_scores) {
+                auto &bucket = grouped[prefix];
+
+                std::sort(bucket.begin(), bucket.end(),
+                        [](auto &a, auto &b) { return a.score > b.score; });
+
+                int limit = std::min((int)bucket.size(), B);
+                for (int i = 0; i < limit; ++i)
+                    kept.push_back(std::move(bucket[i]));
+            }
+
+            LOG(std::cout << "  Keeping (pyramidal) "
+                        << kept.size() << " candidates\n");
+
+            seqs = std::move(kept);
             ++it;
         }
     }

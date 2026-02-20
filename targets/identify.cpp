@@ -17,6 +17,7 @@
 #endif
 
 constexpr float threshold = 0.0;
+constexpr int BEAM_WIDTH = 5;
 
 struct sequence {
     std::string sequence;
@@ -31,35 +32,6 @@ struct sequence {
         return *children;
     }
 };
-
-std::vector<int> compute_effective_branch(
-    const std::vector<int>& base,
-    int depth)
-{
-    int D = base.size();
-
-    int TARGET = 1;
-    for (int v : base) TARGET *= v;
-
-    int W = 1;
-    for (int i = 0; i <= depth && i < D; ++i)
-        W *= base[i];
-
-    if (W >= TARGET)
-        return base;
-
-    double scale = static_cast<double>(TARGET) / W;
-    double root = std::pow(scale, 1.0 / (depth + 1));
-
-    std::vector<int> out = base;
-
-    for (int i = 0; i <= depth && i < D; ++i) {
-        out[i] = std::max(1,
-            static_cast<int>(std::floor(base[i] * root)));
-    }
-
-    return out;
-}
 
 int main(int argc, char* argv[]) {
     if(argc != 5)
@@ -193,7 +165,6 @@ int main(int argc, char* argv[]) {
         }
 
         // ---------------- BEAM PRUNE ----------------
-        // ---------------- BEAM PRUNE ----------------
         for (auto it = sequences.begin(); it != sequences.end(); ) {
             auto &target = it->first;
             auto &seqs   = it->second;
@@ -201,73 +172,31 @@ int main(int argc, char* argv[]) {
             LOG(std::cout << "  Pre-prune: " << seqs.size() << "\n");
 
             std::sort(seqs.begin(), seqs.end(),
-                    [](auto &a, auto &b) { return a.score > b.score; });
+                      [](auto &a, auto &b) { return a.score > b.score; });
 
             if (seqs.empty() || seqs[0].score < threshold) {
+                LOG(std::cout << "  EARLY EXIT (best=" 
+                              << (seqs.empty() ? -1.0f : seqs[0].score)
+                              << ")\n");
+
                 outputs.emplace(
                     target,
                     seqs.empty() ? std::vector<std::string>{} : seqs[0].path
                 );
+
                 it = sequences.erase(it);
                 continue;
             }
 
-            const int N = static_cast<int>(seqs[0].path.size()) - 1;
+            size_t keep = 0;
+            while (keep < seqs.size() &&
+                   keep < BEAM_WIDTH &&
+                   seqs[keep].score >= threshold)
+                ++keep;
 
-            // configurable branching schedule
-            static const std::vector<int> BASE = {2,2,2,2,4};
+            LOG(std::cout << "  Keeping " << keep << " candidates\n");
 
-            auto eff = compute_effective_branch(BASE, N);
-
-            int branch =
-                (N < eff.size())
-                    ? eff[N]
-                    : eff.back();
-
-            // root case: just global top branch
-            if (N == 0) {
-                if ((int)seqs.size() > branch)
-                    seqs.resize(branch);
-                ++it;
-                continue;
-            }
-
-            // ---- Group by parent prefix at depth N-1 ----
-            auto make_prefix = [](const sequence& s, int d) {
-                std::string key;
-                key.reserve(64);
-                for (int i = 0; i <= d; ++i) {
-                    if (i) key.push_back('|');
-                    key += s.path[i];
-                }
-                return key;
-            };
-
-            std::unordered_map<std::string, std::vector<sequence>> grouped;
-
-            for (auto &s : seqs) {
-                auto parent_prefix = make_prefix(s, N - 1);
-                grouped[parent_prefix].push_back(std::move(s));
-            }
-
-            // ---- Keep top `branch` children per parent ----
-            std::vector<sequence> kept;
-            kept.reserve(grouped.size() * branch);
-
-            for (auto &[prefix, bucket] : grouped) {
-
-                std::sort(bucket.begin(), bucket.end(),
-                        [](auto &a, auto &b) { return a.score > b.score; });
-
-                int limit = std::min((int)bucket.size(), branch);
-                for (int i = 0; i < limit; ++i)
-                    kept.push_back(std::move(bucket[i]));
-            }
-
-            LOG(std::cout << "  Keeping (scheduled) "
-                        << kept.size() << " candidates\n");
-
-            seqs = std::move(kept);
+            seqs.resize(keep);
             ++it;
         }
     }

@@ -7,7 +7,7 @@
 #include "HV.h"
 #include "hierarchy.h"
 
-#define THRESHOLD 0.33
+#define THRESHOLD 0.75
 
 const std::vector<std::string> ORDER = {
     "k__", "p__", "c__", "o__", "f__", "g__", "s__"

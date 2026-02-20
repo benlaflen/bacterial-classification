@@ -17,7 +17,6 @@
 #endif
 
 constexpr float threshold = 0.0;
-constexpr int BEAM_WIDTH = 8;
 
 struct sequence {
     std::string sequence;
@@ -32,6 +31,35 @@ struct sequence {
         return *children;
     }
 };
+
+std::vector<int> compute_effective_branch(
+    const std::vector<int>& base,
+    int depth)
+{
+    int D = base.size();
+
+    int TARGET = 1;
+    for (int v : base) TARGET *= v;
+
+    int W = 1;
+    for (int i = 0; i <= depth && i < D; ++i)
+        W *= base[i];
+
+    if (W >= TARGET)
+        return base;
+
+    double scale = static_cast<double>(TARGET) / W;
+    double root = std::pow(scale, 1.0 / (depth + 1));
+
+    std::vector<int> out = base;
+
+    for (int i = 0; i <= depth && i < D; ++i) {
+        out[i] = std::max(1,
+            static_cast<int>(std::floor(base[i] * root)));
+    }
+
+    return out;
+}
 
 int main(int argc, char* argv[]) {
     if(argc != 5)
@@ -184,18 +212,25 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
-            const int B = BEAM_WIDTH;
             const int N = static_cast<int>(seqs[0].path.size()) - 1;
 
-            // If at root depth (N == 0): just keep top B
+            // configurable branching schedule
+            static const std::vector<int> BASE = {2,2,2,2,4};
+
+            auto eff = compute_effective_branch(BASE, N);
+
+            int branch =
+                (N < eff.size())
+                    ? eff[N]
+                    : eff.back();
+
+            // root case: just global top branch
             if (N == 0) {
-                if (seqs.size() > B)
-                    seqs.resize(B);
+                if ((int)seqs.size() > branch)
+                    seqs.resize(branch);
                 ++it;
                 continue;
             }
-
-            int allowed_parents = std::max(1, B >> N);
 
             // ---- Group by parent prefix at depth N-1 ----
             auto make_prefix = [](const sequence& s, int d) {
@@ -215,38 +250,21 @@ int main(int argc, char* argv[]) {
                 grouped[parent_prefix].push_back(std::move(s));
             }
 
-            // ---- Score parents by best child ----
-            std::vector<std::pair<std::string, float>> parent_scores;
+            // ---- Keep top `branch` children per parent ----
+            std::vector<sequence> kept;
+            kept.reserve(grouped.size() * branch);
 
             for (auto &[prefix, bucket] : grouped) {
-                float best = -1.0f;
-                for (auto &s : bucket)
-                    best = std::max(best, s.score);
-                parent_scores.emplace_back(prefix, best);
-            }
-
-            std::sort(parent_scores.begin(), parent_scores.end(),
-                    [](auto &a, auto &b) { return a.second > b.second; });
-
-            if ((int)parent_scores.size() > allowed_parents)
-                parent_scores.resize(allowed_parents);
-
-            // ---- Keep top B children per selected parent ----
-            std::vector<sequence> kept;
-            kept.reserve(allowed_parents * B);
-
-            for (auto &[prefix, _] : parent_scores) {
-                auto &bucket = grouped[prefix];
 
                 std::sort(bucket.begin(), bucket.end(),
                         [](auto &a, auto &b) { return a.score > b.score; });
 
-                int limit = std::min((int)bucket.size(), B);
+                int limit = std::min((int)bucket.size(), branch);
                 for (int i = 0; i < limit; ++i)
                     kept.push_back(std::move(bucket[i]));
             }
 
-            LOG(std::cout << "  Keeping (pyramidal) "
+            LOG(std::cout << "  Keeping (scheduled) "
                         << kept.size() << " candidates\n");
 
             seqs = std::move(kept);

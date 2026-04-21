@@ -24,6 +24,11 @@ RANK_TO_PREFIX = {
     "species": "s__",
 }
 
+def is_valid_bacterial(tax_string: str) -> bool:
+    return tax_string.startswith("Bacteria;")
+
+SKIP_SPECIES = {"unidentified", "uncultured", "unclassified"}
+
 def safe_name(label: str) -> str:
     return (
         label
@@ -52,39 +57,31 @@ def load_rank_lookup(tax_txt: Path) -> dict:
 def build_prefixed_taxonomy(tax_string: str, rank_lookup: dict) -> str:
     tokens = [t for t in tax_string.split(";") if t.strip()]
 
-    # Find the Bacteria anchor
     try:
         start = tokens.index("Bacteria")
     except ValueError:
-        return "unclassified"  # shouldn't happen after is_bacterial() filter
+        return None  # caught by caller
 
     bacterial_tokens = tokens[start:]
-    prefixed = []
-    cumulative = ""
-
-    # Rebuild cumulative path from the full original string so it
-    # matches the keys in the rank lookup (which are absolute paths)
-    # We need the prefix up to Bacteria to anchor correctly
-    pre = ";".join(tokens[:start + 1]) + ";"
-    cumulative = pre  # e.g. "Bacteria;"
-
-    prefixed.append(f"k__Bacteria")  # domain always known
+    prefixed = ["k__Bacteria"]
+    cumulative = "Bacteria;"
 
     for i, token in enumerate(bacterial_tokens[1:], 1):
         is_last = (i == len(bacterial_tokens) - 1)
         cumulative += token + ";"
 
         if is_last:
-            if token.lower() in ("unidentified", "uncultured", "unclassified"):
-                pass  # omit — lowest rank will be whatever came before
+            if token.lower() in SKIP_SPECIES:
+                pass  # just don't append — genus becomes the lowest rank
             else:
                 prefixed.append(f"s__{token}")
         else:
+            if token.lower() in SKIP_SPECIES:
+                return None  # unidentified at an intermediate rank — discard whole record
             rank = rank_lookup.get(cumulative)
             prefix = RANK_TO_PREFIX.get(rank)
             if prefix:
                 prefixed.append(f"{prefix}{token}")
-            # unranked intermediates silently skipped — no x__ noise
 
     return ";".join(prefixed)
 
@@ -129,17 +126,26 @@ def main():
                 if seq_id is not None:
                     buffers[id_to_low[seq_id]].append((seq_id, "".join(seq)))
 
-                # Header format: ">SEQID taxonomy;string;here;..."
-                header   = line[1:]
-                parts    = header.split(" ", 1)
-                seq_id   = parts[0]
-                raw_tax  = parts[1] if len(parts) > 1 else ""
-                prefixed = build_prefixed_taxonomy(raw_tax, rank_lookup)
-                lowest   = parse_lowest_rank(prefixed)
-
-                id_to_tax[seq_id] = prefixed
-                id_to_low[seq_id] = lowest
+                # Reset sentinel before deciding whether to keep this record
+                seq_id = None
                 seq = []
+
+                header  = line[1:]
+                parts   = header.split(" ", 1)
+                raw_tax = parts[1] if len(parts) > 1 else ""
+
+                if not is_valid_bacterial(raw_tax):
+                    continue
+
+                prefixed = build_prefixed_taxonomy(raw_tax, rank_lookup)
+                if prefixed is None:
+                    continue
+
+                sid    = parts[0]
+                lowest = parse_lowest_rank(prefixed)
+                id_to_tax[sid] = prefixed
+                id_to_low[sid] = lowest
+                seq_id = sid  # only set if record passed all filters
             else:
                 seq.append(line)
 

@@ -153,10 +153,16 @@ def main():
         if seq_id is not None:
             buffers[id_to_low[seq_id]].append((seq_id, "".join(seq)))
 
-    # --- Create empty FASTAs for every known category ---
-    all_categories = set(id_to_low.values())
-    for cat in all_categories:
-        (outdir / f"{safe_name(cat)}.fasta").touch(exist_ok=True)
+    # --- Create empty FASTAs for every node at every rank ---
+    all_nodes = set()
+    for prefixed_tax in id_to_tax.values():
+        fields = [f.strip() for f in prefixed_tax.split(";")]
+        for field in fields:
+            if "__" in field and not field.endswith("__"):
+                all_nodes.add(field)
+
+    for node in all_nodes:
+        (outdir / f"{safe_name(node)}.fasta").touch(exist_ok=True)
 
     # --- Write taxonomy index ---
     print(f"Writing {args.tax_out}...")

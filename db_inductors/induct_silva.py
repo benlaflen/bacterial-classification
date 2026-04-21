@@ -178,7 +178,7 @@ def main():
             for sid, s in records:
                 out.write(f">{sid}\n{s}\n")
 
-    print(f"Done. {len(id_to_tax)} sequences → {len(all_categories)} categories.")
+    print(f"Done. {len(id_to_tax)} sequences → {len(all_nodes)} categories.")
 
 if __name__ == "__main__":
     main()

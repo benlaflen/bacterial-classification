@@ -9,7 +9,7 @@
 HV empty_hv() {
     HV hv(HV_WORDS, ~uint64_t(0));
     // mask off unused bits in the last word
-    constexpr size_t excess = HV_WORDS * 64 - HV_SIZE;
+    constexpr size_t excess = HV_WORDS * 64 - HV_DIM;
     if constexpr (excess > 0) {
         hv.back() &= (~uint64_t(0)) >> excess;
     }
@@ -26,7 +26,7 @@ HV make_hv(int seed) {
         hv[i] = rng();
 
     // mask off unused bits in the last word
-    constexpr size_t excess = HV_WORDS * 64 - HV_SIZE;
+    constexpr size_t excess = HV_WORDS * 64 - HV_DIM;
     if constexpr (excess > 0) {
         hv.back() &= (~uint64_t(0)) >> excess;
     }
@@ -77,7 +77,7 @@ const HV& get_base_hv(char symbol) {
     }
 
     // mask tail bits
-    constexpr size_t excess = HV_WORDS * 64 - HV_SIZE;
+    constexpr size_t excess = HV_WORDS * 64 - HV_DIM;
     if constexpr (excess > 0)
         out.back() &= (~uint64_t(0)) >> excess;
 }
@@ -87,7 +87,7 @@ void superpose(HV_16& acc, const HV& r) {
 
     for (size_t w = 0; w < HV_WORDS; ++w) {
         uint64_t word = r[w];
-        for (int b = 0; b < 64 && bit < HV_SIZE; ++b, ++bit) {
+        for (int b = 0; b < 64 && bit < HV_DIM; ++b, ++bit) {
             acc[bit] += (word & 1) ? 1.0f : -1.0f;
             word >>= 1;
         }
@@ -140,7 +140,7 @@ void mult(const HV& l, const HV& r, HV& out, size_t k_bits) {
     }
 
     // Mask tail bits in last word (same as you had).
-    constexpr size_t excess = HV_WORDS * 64 - HV_SIZE;
+    constexpr size_t excess = HV_WORDS * 64 - HV_DIM;
     if constexpr (excess > 0) {
         op[HV_WORDS - 1] &= (~uint64_t(0)) >> excess;
     }
@@ -148,7 +148,7 @@ void mult(const HV& l, const HV& r, HV& out, size_t k_bits) {
 
 // ------------------------ accumulator init ------------------------
 HV_16 make_accumulator() {
-    return HV_16(HV_SIZE, 0);
+    return HV_16(HV_DIM, 0);
 }
 
 // Accumulate a batch of binders into acc.
@@ -161,7 +161,7 @@ void superpose_batch(
     int16_t* __restrict ap = acc.data();
 
     size_t bit_base = 0;
-    const size_t full_words = HV_SIZE / 64;
+    const size_t full_words = HV_DIM / 64;
 
     for (size_t w = 0; w < full_words; ++w) {
         int16_t* block = ap + bit_base;
@@ -191,7 +191,7 @@ void superpose_batch(
     }
 
     // Tail
-    const size_t tail = HV_SIZE - bit_base;
+    const size_t tail = HV_DIM - bit_base;
     if (tail) {
         int16_t* block = ap + bit_base;
 
@@ -222,7 +222,7 @@ float cosine(const HV_16& l, const HV_16& r) {
     int64_t norm_l = 0;
     int64_t norm_r = 0;
 
-    const size_t n = l.size();  // should be HV_SIZE
+    const size_t n = l.size();  // should be HV_DIM
 
     for (size_t i = 0; i < n; ++i) {
         int64_t li = l[i];

@@ -5,8 +5,6 @@
 #include <unordered_set>
 #include <random>
 
-#define SIM_STEP 1
-
 constexpr char ALPHABET[4] = {'A','C','G','T'};
 
 static inline char rc_base(char c) {

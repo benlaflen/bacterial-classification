@@ -4,10 +4,8 @@
 #include <list>
 #include "HV.h"
 
-#define SEQUENCE_LENGTH 125
-
 constexpr size_t CACHE_BYTES = 1'000'000'000;
-constexpr size_t HV_MEM = HV_SIZE * 2;
+constexpr size_t HV_MEM = HV_DIM * 2;
 constexpr size_t CACHE_SIZE = CACHE_BYTES / HV_MEM;
 
 struct SIM {
@@ -17,7 +15,7 @@ struct SIM {
 
 class HVCache {
 public:
-    explicit HVCache(size_t max_entries = CACHE_SIZE, size_t channel = DEFAULT_WINDOW);
+    explicit HVCache(size_t max_entries = CACHE_SIZE, size_t channel = KMER_SIZE);
 
     const HV_16& get(const std::string& seq);
 

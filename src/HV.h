@@ -3,18 +3,9 @@
 #include <vector>
 #include <cstdint>
 #include <array>
-
-#define DEFAULT_WINDOW 5
-
-constexpr size_t HV_SIZE = 10'000;
-
-// 1 bit per dimension, packed
-using HV = std::vector<uint64_t>;
+#include "config.h"
 
 HV empty_hv();
-
-// number of 64-bit blocks needed
-constexpr size_t HV_WORDS = (HV_SIZE + 63) / 64;
 
 const HV& get_base_hv(char symbol);
 
@@ -35,8 +26,8 @@ inline void replace_batch(
 ) {
     int16_t* __restrict ap = reinterpret_cast<int16_t*>(acc.data());
 
-    const size_t full_words = HV_SIZE / 64;
-    const size_t tail_bits  = HV_SIZE - full_words * 64;
+    const size_t full_words = HV_DIM / 64;
+    const size_t tail_bits  = HV_DIM - full_words * 64;
 
     // byte -> 8 lanes of {0,2}
     static std::array<std::array<int16_t, 8>, 256> lut;
@@ -80,7 +71,7 @@ inline void replace_batch(
         }
     }
 
-    // Tail (if HV_SIZE not multiple of 64)
+    // Tail (if HV_DIM not multiple of 64)
     if (tail_bits) {
         int16_t* block = ap + full_words * 64;
         const uint64_t mask = (tail_bits == 64) ? ~0ull : ((1ull << tail_bits) - 1ull);

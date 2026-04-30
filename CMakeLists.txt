@@ -18,6 +18,7 @@ endif()
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 
 set(CMAKE_CUDA_ARCHITECTURES 86 89)
+find_package(CUDAToolkit REQUIRED)
 
 option(NORM_COSINE "Use normalized cosine similarity" OFF)
 

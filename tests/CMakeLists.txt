@@ -14,6 +14,12 @@ if (TEST_SOURCES)
             PRIVATE cxx_std_20
         )
 
+        set_target_properties(${test_name} PROPERTIES
+            CUDA_STANDARD 17
+            CUDA_STANDARD_REQUIRED ON
+            CUDA_SEPARABLE_COMPILATION ON
+        )
+
         target_compile_options(${test_name}
             PRIVATE
                 $<$<COMPILE_LANGUAGE:CXX>:$<$<CONFIG:Debug>:-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer>>

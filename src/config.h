@@ -9,6 +9,8 @@
 
 
 #define HV_WORDS        ((HV_DIM + 63) / 64)
+#define HV_BLOCK_SIZE   1024
+#define HV_BLOCKS       ((HV_DIM + HV_BLOCK_SIZE - 1) / HV_BLOCK_SIZE)
 #define KMER_BITS       (2 * KMER_SIZE)
 #define KMER_COUNT      (1 << KMER_BITS)
 #define KMER_MASK       (KMER_COUNT - 1)

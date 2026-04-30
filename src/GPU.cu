@@ -73,9 +73,10 @@ __global__ void hdc_encode(
     int num_seqs)
 {
     // --- Decode indices ---
-    int seq_idx = blockIdx.x;   // which sequence
-    int win_idx = blockIdx.y;   // which window within the sequence
-    int dim     = threadIdx.x;  // which HV dimension this thread owns
+    int seq_idx = blockIdx.x;
+    int win_idx = blockIdx.y;
+    int dim     = blockIdx.z * HV_BLOCK_SIZE + threadIdx.x;
+    if (dim >= HV_DIM) return;
 
     int seq_base_offset = seq_offsets[seq_idx];         // base-unit start of this sequence
     int seq_len         = seq_offsets[seq_idx + 1] - seq_base_offset;
@@ -143,11 +144,11 @@ cudaError_t launch_hdc_encode(
     // Block: one thread per HV dimension.
     // HV_DIM must be <= 1024 (CUDA max threads per block).
     // For large HV_DIM, consider splitting into multiple threadIdx dimensions.
-    dim3 block(HV_DIM, 1, 1);
+    dim3 block(HV_BLOCK_SIZE, 1, 1);
 
     // Grid: one block per (sequence, window) pair.
     // Excess window blocks for short sequences exit immediately via bounds check.
-    dim3 grid(num_seqs, max_windows, 1);
+    dim3 grid(num_seqs, max_windows, HV_BLOCKS);
 
     hdc_encode<<<grid, block, 0, stream>>>(
         d_seq_packed,

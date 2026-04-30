@@ -27,7 +27,7 @@ if(TARGET_SOURCES)
                 $<$<COMPILE_LANGUAGE:CXX>:$<$<CONFIG:RelWithDebInfo>:-O3 -march=native>>
                 $<$<COMPILE_LANGUAGE:CXX>:$<$<CONFIG:Profile>:-O0 -g -fno-inline -fno-omit-frame-pointer>>
                 $<$<COMPILE_LANGUAGE:CUDA>:$<$<CONFIG:Release>:-O3 --use_fast_math>>
-                $<$<COMPILE_LANGUAGE:CUDA>:$<$<CONFIG:Profile>:-lineinfo>>
+                $<$<COMPILE_LANGUAGE:CUDA>:$<$<CONFIG:Profile>:-lineinfo  -G>>
         )
         target_link_libraries(${target_name}
             PRIVATE CUDA::cudart

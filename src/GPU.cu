@@ -33,12 +33,6 @@ __device__ __forceinline__ uint32_t extract_kmer(const uint32_t* __restrict__ se
     return (uint32_t)((combined >> bit_offset) & KMER_MASK);
 }
 
-__device__ __forceinline__ uint32_t extract_kmer(const uint32_t* __restrict__ seq_packed,
-                                                  int pos)
-{
-    return (uint32_t)((((uint64_t)seq_packed[pos * 2 / 32 + 1] << 32) | seq_packed[pos * 2 / 32] >> pos * 2) & KMER_MASK);
-}
-
 
 // ---------------------------------------------------------------------------
 // Main encode kernel

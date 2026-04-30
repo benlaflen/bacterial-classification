@@ -1,4 +1,4 @@
-file(GLOB TEST_SOURCES CONFIGURE_DEPENDS *.cpp)
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS *.cpp "*.cu")
 
 if (TEST_SOURCES)
     foreach(test_src ${TEST_SOURCES})
@@ -16,10 +16,16 @@ if (TEST_SOURCES)
 
         target_compile_options(${test_name}
             PRIVATE
-                $<$<CONFIG:Debug>:-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer>
-                $<$<CONFIG:Release>:-O3 -march=native -ffast-math>
-                $<$<CONFIG:RelWithDebInfo>:-O3 -march=native>
+                $<$<COMPILE_LANGUAGE:CXX>:$<$<CONFIG:Debug>:-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer>>
+                $<$<COMPILE_LANGUAGE:CXX>:$<$<CONFIG:Release>:-O3 -march=native -ffast-math>>
+                $<$<COMPILE_LANGUAGE:CXX>:$<$<CONFIG:RelWithDebInfo>:-O3 -march=native>>
+                $<$<COMPILE_LANGUAGE:CXX>:$<$<CONFIG:Profile>:-O0 -g -fno-inline -fno-omit-frame-pointer>>
+                $<$<COMPILE_LANGUAGE:CUDA>:$<$<CONFIG:Release>:-O3 --use_fast_math>>
         )
+        target_link_libraries(${test_name}
+            PRIVATE CUDA::cudart
+        )
+        set_target_properties(${test_name} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
         target_link_options(${test_name}
             PRIVATE

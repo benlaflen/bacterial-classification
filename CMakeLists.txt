@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(hvlib
     VERSION 0.1.0
-    LANGUAGES CXX
+    LANGUAGES CXX CUDA
 )
 
 # ---- Global options ----
@@ -15,6 +15,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+
+set(CMAKE_CUDA_ARCHITECTURES 86 89)
 
 option(NORM_COSINE "Use normalized cosine similarity" OFF)
 

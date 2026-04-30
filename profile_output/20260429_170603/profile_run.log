@@ -1,0 +1,55 @@
+[1m=== C++ Profile Run: 20260429_170603 ===[0m
+[0;36m[profile][0m Host:       zebra@seelab-cuda-2.ucsd.edu:42118
+[0;36m[profile][0m Repo:       /home/zebra/blaflen/bacteria/bacterial-classification
+[0;36m[profile][0m Binary:     tests/GPU_encode_test
+[0;36m[profile][0m Build dir:  build_profile
+[0;36m[profile][0m Output:     ./profile_output/20260429_170603
+
+[0;36m[profile][0m Step 1/5: Pulling and building on remote...
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+--- Git status ---
+From github.com:benlaflen/bacterial-classification
+ + dd2486c...e641eaa main       -> origin/main  (forced update)
+No local changes to save
+Successfully rebased and updated refs/heads/main.
+--- At commit: e641eaa GPU encoding ---
+
+--- CMake configure ---
+-- The CXX compiler identification is GNU 11.4.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/zebra/blaflen/bacteria/bacterial-classification/build_profile
+
+--- Build ---
+[  8%] Building CXX object src/CMakeFiles/hvlib.dir/HV.cpp.o
+[ 16%] Building CXX object src/CMakeFiles/hvlib.dir/encoder.cpp.o
+[ 25%] Building CXX object src/CMakeFiles/hvlib.dir/hierarchy.cpp.o
+[ 33%] Linking CXX static library libhvlib.a
+[ 33%] Built target hvlib
+[ 58%] Building CXX object targets/CMakeFiles/propogate-children.dir/propogate-children.cpp.o
+[ 58%] Building CXX object tests/CMakeFiles/query-test.dir/query-test.cpp.o
+[ 58%] Building CXX object tests/CMakeFiles/sim-test.dir/sim-test.cpp.o
+[ 66%] Building CXX object targets/CMakeFiles/identify.dir/identify.cpp.o
+[ 75%] Linking CXX executable sim-test
+[ 83%] Linking CXX executable query-test
+[ 83%] Built target sim-test
+[ 83%] Built target query-test
+[ 91%] Linking CXX executable propogate-children
+[ 91%] Built target propogate-children
+[100%] Linking CXX executable identify
+[100%] Built target identify
+
+--- Build complete ---
+[0;32m[  ok  ][0m Build succeeded
+[0;36m[profile][0m Step 2/5: Running callgrind CPU profile (this may take a while)...
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+ERROR: Binary not found or not executable: ./tests/GPU_encode_test

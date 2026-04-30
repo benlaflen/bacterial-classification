@@ -24,6 +24,8 @@ public:
     //Require that query is SEQUENCE_LENGTH long
     SIM similarity(const std::string &query, const std::string &reference);
 
+    std::unordered_map<std::string, HV> kmers;
+
 private:
     struct Entry {
         HV_16 hv;
@@ -34,8 +36,6 @@ private:
     std::list<std::string> lru;
     std::unordered_map<std::string, Entry> map;
     size_t channel;
-
-    std::unordered_map<std::string, HV> kmers;
     std::unordered_map<size_t, HV> positions;
 
     HV_16 compute(const std::string& seq);

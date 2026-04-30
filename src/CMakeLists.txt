@@ -1,4 +1,4 @@
-file(GLOB HVLIB_SOURCES CONFIGURE_DEPENDS "*.cpp")
+file(GLOB HVLIB_SOURCES CONFIGURE_DEPENDS "*.cpp" "*.cu")
 add_library(hvlib ${HVLIB_SOURCES})
 
 target_include_directories(hvlib
@@ -18,10 +18,16 @@ target_compile_features(hvlib
 
 target_compile_options(hvlib
     PRIVATE
-        $<$<CONFIG:Debug>:-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer>
-        $<$<CONFIG:Release>:-O3 -march=native -ffast-math>
-        $<$<CONFIG:RelWithDebInfo>:-O3 -march=native>
+        $<$<COMPILE_LANGUAGE:CXX>:$<$<CONFIG:Debug>:-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer>>
+        $<$<COMPILE_LANGUAGE:CXX>:$<$<CONFIG:Release>:-O3 -march=native -ffast-math>>
+        $<$<COMPILE_LANGUAGE:CXX>:$<$<CONFIG:RelWithDebInfo>:-O3 -march=native>>
+        $<$<COMPILE_LANGUAGE:CXX>:$<$<CONFIG:Profile>:-O0 -g -fno-inline -fno-omit-frame-pointer>>
+        $<$<COMPILE_LANGUAGE:CUDA>:$<$<CONFIG:Release>:-O3 --use_fast_math>>
 )
+target_link_libraries(hvlib
+    PRIVATE CUDA::cudart
+)
+set_target_properties(hvlib PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 target_link_options(hvlib
     PRIVATE

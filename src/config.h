@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include <stdint.h>
 
 #define KMER_SIZE       5
 #define HV_DIM          10'000

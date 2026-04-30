@@ -5,6 +5,8 @@
 #include <string>
 #include <algorithm>
 
+#define GPU_MEMORY_HEADROOM 0.8
+
 // ---------------------------------------------------------------------------
 // Device helper: extract a 2-bit-packed k-mer starting at base position `pos`
 // from a packed sequence buffer.
@@ -160,6 +162,24 @@ cudaError_t launch_hdc_encode(
 }
 
 
+
+static std::vector<uint32_t> pack_sequence(const std::string& seq)
+{
+    int num_words = (seq.size() + 15) / 16 + 1; // +1 for safety padding
+    std::vector<uint32_t> packed(num_words, 0);
+    for (int i = 0; i < (int)seq.size(); i++) {
+        uint32_t bits;
+        switch (seq[i]) {
+            case 'A': case 'a': bits = 0; break;
+            case 'C': case 'c': bits = 1; break;
+            case 'G': case 'g': bits = 2; break;
+            case 'T': case 't': bits = 3; break;
+            default:            bits = 0; break;
+        }
+        packed[i / 16] |= (bits << ((i % 16) * 2));
+    }
+    return packed;
+}
 
 static size_t get_memory_limit() {
     static size_t limit = 0;

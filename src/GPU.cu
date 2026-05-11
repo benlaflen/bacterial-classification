@@ -255,6 +255,7 @@ std::vector<std::vector<HV_16>> encode(const std::vector<int16_t>& kmer_map, con
                 output[gpu_batch_start + i].resize(wins);
                 for (int w = 0; w < wins; w++) {
                     int flat_start = ((size_t)gpu_win_offsets[i] + w) * HV_DIM;
+                    std::cout << "flat_start: " << std::to_string(flat_start);
                     output[gpu_batch_start + i][w] = HV_16(
                         flat.begin() + flat_start,
                         flat.begin() + flat_start + HV_DIM);
@@ -313,6 +314,13 @@ std::vector<std::vector<HV_16>> encode(const std::vector<int16_t>& kmer_map, con
 
     // Collect the last (or only) dispatched batch
     if (stream) {
+
+        fprintf(stderr, "gpu_batch_start=%d gpu_win_offsets.size=%zu gpu_total_windows=%d HV_DIM=%d output.size=%zu\n",
+                gpu_batch_start, gpu_win_offsets.size(), gpu_total_windows, HV_DIM, output.size());
+        assert(gpu_total_windows > 0);
+        assert((size_t)gpu_total_windows * HV_DIM * sizeof(int16_t) < 2ULL * 1024 * 1024 * 1024);
+        assert(gpu_batch_start + (int)gpu_win_offsets.size() - 1 <= (int)output.size());
+
         cudaStreamSynchronize(stream);
         std::vector<int16_t> flat(gpu_total_windows * HV_DIM);
         cudaMemcpy(flat.data(), d_outputs,

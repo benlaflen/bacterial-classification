@@ -66,7 +66,7 @@ static std::vector<int16_t> build_kmer_map() {
 // ---------------------------------------------------------------------------
 int main(int argc, char* argv[]) {
     const std::string fasta_path =
-        (argc > 1) ? argv[1] : "test_scripts/EXAMPLE_READS.fasta";
+        (argc > 1) ? argv[1] : "EXAMPLE_READS.fasta";
 
     std::cout << "Loading reads from: " << fasta_path << "\n";
     auto reads = load_fasta(fasta_path);

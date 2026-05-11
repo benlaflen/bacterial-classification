@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <string>
 #include <algorithm>
+#include <iostream>
 
 #define GPU_MEMORY_HEADROOM 0.8
 

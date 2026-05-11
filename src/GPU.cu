@@ -5,6 +5,7 @@
 #include <string>
 #include <algorithm>
 #include <iostream>
+#include <cassert>
 
 #define GPU_MEMORY_HEADROOM 0.8
 

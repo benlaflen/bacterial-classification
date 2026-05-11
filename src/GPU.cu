@@ -257,12 +257,12 @@ std::vector<std::vector<HV_16>> encode(const std::vector<int16_t>& kmer_map, con
                 output[gpu_batch_start + i].resize(wins);
                 for (int w = 0; w < wins; w++) {
                     int flat_start = ((size_t)gpu_win_offsets[i] + w) * HV_DIM;
-                    std::cout << "flat_start: " << std::to_string(flat_start);
                     output[gpu_batch_start + i][w] = HV_16(
                         flat.begin() + flat_start,
                         flat.begin() + flat_start + HV_DIM);
                 }
             }
+            std::cout << "\nflat_start: " << std::to_string(flat_start) << "\n";
 
             cudaFree(d_seq_packed);
             cudaFree(d_seq_offsets_dev);

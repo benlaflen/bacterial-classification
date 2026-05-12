@@ -252,7 +252,7 @@ std::vector<std::vector<HV_16>> encode(const std::vector<int16_t>& kmer_map, con
                 gpu_total_windows * HV_DIM * sizeof(int16_t),
                 cudaMemcpyDeviceToHost);
             
-            std::cout << "\ngpu_win_offsets.size(): " << std::to_string(gpu_wins_offset.size());
+            std::cout << "\ngpu_win_offsets.size(): " << std::to_string(gpu_win_offsets.size());
 
             for (int i = 0; i < (int)gpu_win_offsets.size() - 1; i++) {
                 int wins = gpu_win_offsets[i + 1] - gpu_win_offsets[i];

@@ -195,11 +195,15 @@ static size_t get_memory_limit() {
 }
 
 std::vector<std::vector<HV_16>> encode(const std::vector<int16_t>& kmer_map, const std::vector<std::string>& sequences) {
+    fprintf(stderr, "[encode] START: %zu sequences\n", sequences.size());
+    for (size_t i = 0; i < sequences.size(); i++)
+        fprintf(stderr, "[encode]   seq[%zu] len=%zu\n", i, sequences[i].size());
+
     static size_t memory_limit = get_memory_limit();
+    fprintf(stderr, "[encode] memory_limit = %zu bytes (%.2f GB)\n", memory_limit, memory_limit / (1024.0*1024.0*1024.0));
+
     std::vector<std::vector<HV_16>> output(sequences.size());
-
     int16_t* d_kmer_map = nullptr;
-
     cudaStream_t     stream            = nullptr;
     int16_t*         d_outputs         = nullptr;
     uint32_t*        d_seq_packed      = nullptr;
@@ -208,7 +212,6 @@ std::vector<std::vector<HV_16>> encode(const std::vector<int16_t>& kmer_map, con
     int              gpu_batch_start   = 0;
     std::vector<int> gpu_win_offsets;
     int              gpu_total_windows = 0;
-
     int              batch_start   = 0;
     int              batch_end     = 0;
     int              batch_max_len = 0;
@@ -218,45 +221,86 @@ std::vector<std::vector<HV_16>> encode(const std::vector<int16_t>& kmer_map, con
     std::vector<int>      window_offsets = {0};
     std::vector<uint32_t> seq_packed_host;
 
-    cudaMalloc(&d_kmer_map, KMER_COUNT * HV_DIM * sizeof(int16_t));
-    cudaMemcpy(d_kmer_map, kmer_map.data(), KMER_COUNT * HV_DIM * sizeof(int16_t), cudaMemcpyHostToDevice);
+    fprintf(stderr, "[encode] Allocating d_kmer_map: KMER_COUNT=%d HV_DIM=%d => %zu bytes\n",
+            KMER_COUNT, HV_DIM, (size_t)KMER_COUNT * HV_DIM * sizeof(int16_t));
+    cudaError_t e = cudaMalloc(&d_kmer_map, KMER_COUNT * HV_DIM * sizeof(int16_t));
+    fprintf(stderr, "[encode] cudaMalloc d_kmer_map: %s\n", cudaGetErrorString(e));
+    e = cudaMemcpy(d_kmer_map, kmer_map.data(), KMER_COUNT * HV_DIM * sizeof(int16_t), cudaMemcpyHostToDevice);
+    fprintf(stderr, "[encode] cudaMemcpy kmer_map H->D: %s\n", cudaGetErrorString(e));
 
+    fprintf(stderr, "[encode] Entering main while loop (batch_start=%d)\n", batch_start);
     while (batch_start < (int)sequences.size()) {
+        fprintf(stderr, "[encode] --- Top of main loop: batch_start=%d batch_end=%d batch_index=%d batch_complete=%d stream=%p ---\n",
+                batch_start, batch_end, batch_index, (int)batch_complete, (void*)stream);
 
         // --- Assemble + pack next batch while GPU runs ---
+        fprintf(stderr, "[encode]   [assemble] Entering assembly loop\n");
         while (!batch_complete && (!stream || cudaStreamQuery(stream) != cudaSuccess)) {
-            if (batch_end >= (int)sequences.size()) { batch_complete = true; break; }
-
+            if (batch_end >= (int)sequences.size()) {
+                fprintf(stderr, "[encode]   [assemble] batch_end=%d >= sequences.size()=%zu => batch_complete=true\n",
+                        batch_end, sequences.size());
+                batch_complete = true; break;
+            }
             int candidate_max     = std::max(batch_max_len, (int)sequences[batch_end].size());
             int candidate_windows = (candidate_max - SEQUENCE_LENGTH) / SIM_STEP + 1;
             size_t candidate_mem  = (size_t)(batch_end - batch_start + 1)
                                   * candidate_windows * HV_DIM * sizeof(int16_t);
-            if (candidate_mem > memory_limit) { batch_complete = true; break; }
-
+            fprintf(stderr, "\r[encode]   [assemble] seq[%d] len=%zu | candidate_max=%d candidate_windows=%d candidate_mem=%zu (%.2f MB) memory_limit=%zu (%.2f MB)    ",
+                    batch_end, sequences[batch_end].size(),
+                    candidate_max, candidate_windows,
+                    candidate_mem, candidate_mem / (1024.0*1024.0),
+                    memory_limit, memory_limit / (1024.0*1024.0));
+            if (candidate_mem > memory_limit) {
+                fprintf(stderr, "\n[encode]   [assemble] Memory limit exceeded => batch_complete=true\n");
+                batch_complete = true; break;
+            }
             const std::string& seq = sequences[batch_end];
             int wins = ((int)seq.size() - SEQUENCE_LENGTH) / SIM_STEP + 1;
             seq_offsets.push_back(seq_offsets.back() + (int)seq.size());
             window_offsets.push_back(window_offsets.back() + wins);
             std::vector<uint32_t> packed = pack_sequence(seq);
             seq_packed_host.insert(seq_packed_host.end(), packed.begin(), packed.end());
+            fprintf(stderr, "\n[encode]   [assemble] Added seq[%d]: wins=%d seq_offsets.back()=%d window_offsets.back()=%d packed_words=%zu seq_packed_host.size()=%zu\n",
+                    batch_end, wins,
+                    seq_offsets.back(), window_offsets.back(),
+                    packed.size(), seq_packed_host.size());
             batch_max_len = candidate_max;
             batch_end++;
         }
+        fprintf(stderr, "[encode]   [assemble] Exited assembly loop: batch_end=%d batch_complete=%d batch_max_len=%d\n",
+                batch_end, (int)batch_complete, batch_max_len);
+        fprintf(stderr, "[encode]   [assemble] seq_offsets(%zu): ", seq_offsets.size());
+        for (int x : seq_offsets) fprintf(stderr, "%d ", x);
+        fprintf(stderr, "\n");
+        fprintf(stderr, "[encode]   [assemble] window_offsets(%zu): ", window_offsets.size());
+        for (int x : window_offsets) fprintf(stderr, "%d ", x);
+        fprintf(stderr, "\n");
 
         // --- Sync previous batch and collect results ---
         if (stream) {
-            cudaStreamSynchronize(stream);
+            fprintf(stderr, "[encode]   [sync] Synchronizing stream for batch starting at gpu_batch_start=%d\n", gpu_batch_start);
+            fprintf(stderr, "[encode]   [sync] gpu_total_windows=%d gpu_win_offsets.size()=%zu\n",
+                    gpu_total_windows, gpu_win_offsets.size());
+            fprintf(stderr, "[encode]   [sync] gpu_win_offsets: ");
+            for (int x : gpu_win_offsets) fprintf(stderr, "%d ", x);
+            fprintf(stderr, "\n");
 
+            cudaError_t sync_err = cudaStreamSynchronize(stream);
+            fprintf(stderr, "[encode]   [sync] cudaStreamSynchronize: %s\n", cudaGetErrorString(sync_err));
+
+            size_t flat_bytes = (size_t)gpu_total_windows * HV_DIM * sizeof(int16_t);
+            fprintf(stderr, "[encode]   [sync] Allocating flat buffer: %d windows * %d dims * 2 bytes = %zu bytes (%.2f MB)\n",
+                    gpu_total_windows, HV_DIM, flat_bytes, flat_bytes / (1024.0*1024.0));
             std::vector<int16_t> flat(gpu_total_windows * HV_DIM);
-            cudaMemcpy(flat.data(), d_outputs,
-                gpu_total_windows * HV_DIM * sizeof(int16_t),
-                cudaMemcpyDeviceToHost);
-            
-            std::cout << "\ngpu_win_offsets.size(): " << std::to_string(gpu_win_offsets.size());
+            cudaError_t cpy_err = cudaMemcpy(flat.data(), d_outputs, flat_bytes, cudaMemcpyDeviceToHost);
+            fprintf(stderr, "[encode]   [sync] cudaMemcpy D->H flat: %s\n", cudaGetErrorString(cpy_err));
 
+            fprintf(stderr, "[encode]   [sync] Unpacking %zu result segments\n", gpu_win_offsets.size() - 1);
             for (int i = 0; i < (int)gpu_win_offsets.size() - 1; i++) {
                 int wins = gpu_win_offsets[i + 1] - gpu_win_offsets[i];
-                std::cout << "\nwins: " << std::to_string(wins);
+                size_t flat_start_base = (size_t)gpu_win_offsets[i] * HV_DIM;
+                fprintf(stderr, "\r[encode]   [sync] output[%d]: wins=%d flat_start_base=%zu    ",
+                        gpu_batch_start + i, wins, flat_start_base);
                 output[gpu_batch_start + i].resize(wins);
                 for (int w = 0; w < wins; w++) {
                     size_t flat_start = ((size_t)gpu_win_offsets[i] + w) * HV_DIM;
@@ -265,15 +309,16 @@ std::vector<std::vector<HV_16>> encode(const std::vector<int16_t>& kmer_map, con
                         flat.begin() + flat_start + HV_DIM);
                 }
             }
-            
-            std::cout << "\nWE ARE GETTING HERE\n";
+            fprintf(stderr, "\n[encode]   [sync] Unpack complete\n");
 
-            cudaFree(d_seq_packed);
-            cudaFree(d_seq_offsets_dev);
-            cudaFree(d_win_offsets_dev);
-            cudaFree(d_outputs);
-            cudaStreamDestroy(stream);
+            fprintf(stderr, "[encode]   [sync] Freeing GPU resources for previous batch\n");
+            fprintf(stderr, "[encode]   [sync] cudaFree(d_seq_packed):      %s\n", cudaGetErrorString(cudaFree(d_seq_packed)));
+            fprintf(stderr, "[encode]   [sync] cudaFree(d_seq_offsets_dev): %s\n", cudaGetErrorString(cudaFree(d_seq_offsets_dev)));
+            fprintf(stderr, "[encode]   [sync] cudaFree(d_win_offsets_dev): %s\n", cudaGetErrorString(cudaFree(d_win_offsets_dev)));
+            fprintf(stderr, "[encode]   [sync] cudaFree(d_outputs):         %s\n", cudaGetErrorString(cudaFree(d_outputs)));
+            fprintf(stderr, "[encode]   [sync] cudaStreamDestroy:           %s\n", cudaGetErrorString(cudaStreamDestroy(stream)));
             stream = nullptr;
+            fprintf(stderr, "[encode]   [sync] Done collecting results for gpu_batch_start=%d\n", gpu_batch_start);
         }
 
         // --- Dispatch current batch ---
@@ -282,29 +327,44 @@ std::vector<std::vector<HV_16>> encode(const std::vector<int16_t>& kmer_map, con
             int max_windows   = (batch_max_len - SEQUENCE_LENGTH) / SIM_STEP + 1;
             int total_windows = window_offsets.back();
 
+            fprintf(stderr, "[encode]   [dispatch] Batch %d: batch_start=%d batch_end=%d batch_size=%d\n",
+                    batch_index, batch_start, batch_end, batch_size);
+            fprintf(stderr, "[encode]   [dispatch] batch_max_len=%d max_windows=%d total_windows=%d\n",
+                    batch_max_len, max_windows, total_windows);
+            fprintf(stderr, "[encode]   [dispatch] seq_packed_host.size()=%zu (%zu bytes)\n",
+                    seq_packed_host.size(), seq_packed_host.size() * sizeof(uint32_t));
+            fprintf(stderr, "[encode]   [dispatch] seq_offsets.size()=%zu window_offsets.size()=%zu\n",
+                    seq_offsets.size(), window_offsets.size());
+            fprintf(stderr, "[encode]   [dispatch] d_outputs alloc: %d * %d * 2 = %zu bytes (%.2f MB)\n",
+                    total_windows, HV_DIM,
+                    (size_t)total_windows * HV_DIM * sizeof(int16_t),
+                    (size_t)total_windows * HV_DIM * sizeof(int16_t) / (1024.0*1024.0));
+
             auto cuda_check = [&](cudaError_t e, const char* what) {
+                fprintf(stderr, "[encode]   [dispatch] %s: %s\n", what, cudaGetErrorString(e));
                 if (e != cudaSuccess)
                     throw std::runtime_error(
                         std::string("encode batch ") + std::to_string(batch_index) +
                         " (" + std::to_string(batch_size) + " seqs): " +
                         what + ": " + cudaGetErrorString(e));
             };
-
-            cuda_check(cudaStreamCreate(&stream),                                                       "cudaStreamCreate");
-            cuda_check(cudaMalloc(&d_seq_packed,    seq_packed_host.size() * sizeof(uint32_t)),        "cudaMalloc seq_packed");
-            cuda_check(cudaMalloc(&d_seq_offsets_dev, seq_offsets.size()   * sizeof(int)),             "cudaMalloc seq_offsets");
-            cuda_check(cudaMalloc(&d_win_offsets_dev, window_offsets.size()* sizeof(int)),             "cudaMalloc win_offsets");
-            cuda_check(cudaMalloc(&d_outputs,       (size_t)total_windows  * HV_DIM * sizeof(int16_t)),"cudaMalloc outputs");
-
-            cuda_check(cudaMemcpyAsync(d_seq_packed,     seq_packed_host.data(), seq_packed_host.size() * sizeof(uint32_t), cudaMemcpyHostToDevice, stream), "memcpy seq_packed");
-            cuda_check(cudaMemcpyAsync(d_seq_offsets_dev, seq_offsets.data(),    seq_offsets.size()     * sizeof(int),      cudaMemcpyHostToDevice, stream), "memcpy seq_offsets");
-            cuda_check(cudaMemcpyAsync(d_win_offsets_dev, window_offsets.data(), window_offsets.size()  * sizeof(int),      cudaMemcpyHostToDevice, stream), "memcpy win_offsets");
+            cuda_check(cudaStreamCreate(&stream),                                                        "cudaStreamCreate");
+            cuda_check(cudaMalloc(&d_seq_packed,      seq_packed_host.size() * sizeof(uint32_t)),        "cudaMalloc seq_packed");
+            cuda_check(cudaMalloc(&d_seq_offsets_dev, seq_offsets.size()     * sizeof(int)),             "cudaMalloc seq_offsets");
+            cuda_check(cudaMalloc(&d_win_offsets_dev, window_offsets.size()  * sizeof(int)),             "cudaMalloc win_offsets");
+            cuda_check(cudaMalloc(&d_outputs,         (size_t)total_windows  * HV_DIM * sizeof(int16_t)),"cudaMalloc outputs");
+            cuda_check(cudaMemcpyAsync(d_seq_packed,      seq_packed_host.data(),  seq_packed_host.size() * sizeof(uint32_t), cudaMemcpyHostToDevice, stream), "memcpyAsync seq_packed");
+            cuda_check(cudaMemcpyAsync(d_seq_offsets_dev, seq_offsets.data(),      seq_offsets.size()     * sizeof(int),      cudaMemcpyHostToDevice, stream), "memcpyAsync seq_offsets");
+            cuda_check(cudaMemcpyAsync(d_win_offsets_dev, window_offsets.data(),   window_offsets.size()  * sizeof(int),      cudaMemcpyHostToDevice, stream), "memcpyAsync win_offsets");
             cuda_check(launch_hdc_encode(d_seq_packed, d_seq_offsets_dev, d_kmer_map,
-                d_win_offsets_dev, d_outputs, batch_size, max_windows, stream),                         "kernel launch");
+                d_win_offsets_dev, d_outputs, batch_size, max_windows, stream),                          "kernel launch");
 
+            fprintf(stderr, "[encode]   [dispatch] Kernel launched. Resetting batch state.\n");
             gpu_batch_start   = batch_start;
             gpu_win_offsets   = window_offsets;
             gpu_total_windows = total_windows;
+            fprintf(stderr, "[encode]   [dispatch] gpu_batch_start=%d gpu_total_windows=%d gpu_win_offsets.size()=%zu\n",
+                    gpu_batch_start, gpu_total_windows, gpu_win_offsets.size());
 
             batch_start   = batch_end;
             batch_max_len = 0;
@@ -313,46 +373,14 @@ std::vector<std::vector<HV_16>> encode(const std::vector<int16_t>& kmer_map, con
             window_offsets = {0};
             seq_packed_host.clear();
             batch_index++;
+            fprintf(stderr, "[encode]   [dispatch] Next batch_start=%d batch_index now=%d\n", batch_start, batch_index);
         }
     }
 
+    fprintf(stderr, "[encode] Exited main loop. batch_index=%d stream=%p\n", batch_index, (void*)stream);
     cudaFree(d_kmer_map);
+    fprintf(stderr, "[encode] cudaFree(d_kmer_map): done\n");
 
-    // Collect the last (or only) dispatched batch
-    if (stream) {
-
-        fprintf(stderr, "gpu_batch_start=%d gpu_win_offsets.size=%zu gpu_total_windows=%d HV_DIM=%d output.size=%zu\n",
-                gpu_batch_start, gpu_win_offsets.size(), gpu_total_windows, HV_DIM, output.size());
-        assert(gpu_total_windows > 0);
-        assert((size_t)gpu_total_windows * HV_DIM * sizeof(int16_t) < 2ULL * 1024 * 1024 * 1024);
-        assert(gpu_batch_start + (int)gpu_win_offsets.size() - 1 <= (int)output.size());
-
-        cudaStreamSynchronize(stream);
-        std::vector<int16_t> flat(gpu_total_windows * HV_DIM);
-        cudaMemcpy(flat.data(), d_outputs,
-            gpu_total_windows * HV_DIM * sizeof(int16_t),
-            cudaMemcpyDeviceToHost);
-
-        std::cout << "\n2.gpu_win_offsets.size(): " << std::to_string(gpu_win_offsets.size());
-        for (int i = 0; i < (int)gpu_win_offsets.size() - 1; i++) {
-            int wins = gpu_win_offsets[i + 1] - gpu_win_offsets[i];
-            std::cout << "\n2.wins: " << std::to_string(wins);
-            output[gpu_batch_start + i].resize(wins);
-            for (int w = 0; w < wins; w++) {
-                int flat_start = (gpu_win_offsets[i] + w) * HV_DIM;
-                output[gpu_batch_start + i][w] = HV_16(
-                    flat.begin() + flat_start,
-                    flat.begin() + flat_start + HV_DIM);
-            }
-        }
-        std::cout << "\n2.WE ARE GETTING HERE\n";
-        cudaFree(d_seq_packed);
-        cudaFree(d_seq_offsets_dev);
-        cudaFree(d_win_offsets_dev);
-        cudaFree(d_outputs);
-        cudaStreamDestroy(stream);
-        stream = nullptr;
-    }
-
+    fprintf(stderr, "[encode] DONE. Returning %zu output vectors.\n", output.size());
     return output;
 }

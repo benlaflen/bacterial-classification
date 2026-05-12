@@ -257,6 +257,7 @@ std::vector<std::vector<HV_16>> encode(const std::vector<int16_t>& kmer_map, con
                 output[gpu_batch_start + i].resize(wins);
                 for (int w = 0; w < wins; w++) {
                     size_t flat_start = ((size_t)gpu_win_offsets[i] + w) * HV_DIM;
+                    std::cout << std::to_string(flat_start) << "\n";
                     output[gpu_batch_start + i][w] = HV_16(
                         flat.begin() + flat_start,
                         flat.begin() + flat_start + HV_DIM);

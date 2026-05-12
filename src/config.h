@@ -5,7 +5,7 @@
 #define KMER_SIZE       5
 #define HV_DIM          10'000
 #define SEQUENCE_LENGTH 125
-#define SIM_STEP        1
+#define SIM_STEP        10
 
 
 #define HV_WORDS        ((HV_DIM + 63) / 64)

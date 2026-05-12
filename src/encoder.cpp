@@ -51,6 +51,7 @@ HVCache::HVCache(size_t max_entries, size_t channel)
 
         std::string rc = revcomp(s);
         std::string canon = (rc < s) ? rc : s;
+        std::cout << "\nCompiling NMER " << s << std::flush;
 
         // If canonical already assigned, reuse it
         auto it = kmers.find(canon);

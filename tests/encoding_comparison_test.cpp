@@ -111,7 +111,7 @@ int main(int argc, char* argv[]) {
     for (const auto& seq : reads) {
         auto t3 = std::chrono::high_resolution_clock::now();
         double cpu_ms = std::chrono::duration<double, std::milli>(t3 - t2).count();
-        std::cout << "\nPrecomputing (current time: " << cpu_ms << "ms)";
+        std::cout << "\nPrecomputing (current time: " << cpu_ms << "ms)" << std::flush;
         cache.precompute(seq);
     }
 

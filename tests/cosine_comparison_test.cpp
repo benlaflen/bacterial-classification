@@ -6,6 +6,8 @@
 #include <numeric>
 #include <limits>
 #include <ranges>
+#include <cmath>
+#include <iomanip>
 #include "GPU.cuh"
 #include "encoder.h"
 #include "HV.h"
@@ -77,29 +79,42 @@ int main(int argc, char* argv[]) {
     std::cout << "done (" << encode_ms << " ms).\n\n";
 
     // -----------------------------------------------------------------------
-    // Split reads in half.  Input set = first half, output set = second half.
+    // Split reads in half.
+    // Input set  = first half,  one HV per read (first window).
+    // DB set     = second half, ALL windows flattened — but we track which
+    //              read each window came from so agreement is read-level.
     // -----------------------------------------------------------------------
-    const int n_reads   = (int)gpu_hvs.size();
-    const int half      = n_reads / 2;
-
+    const int n_reads = (int)gpu_hvs.size();
+    const int half    = n_reads / 2;
     if (half == 0) { std::cerr << "Need at least 2 reads — aborting.\n"; return 1; }
 
-    // Inputs: first window only from each read in the first half
+    // Inputs: first window of each first-half read
     std::vector<HV_16*> inputs;
+    std::vector<int>    input_read_idx; // which original read each input came from
     inputs.reserve(half);
     for (int i : std::views::iota(0, half)) {
-        if (gpu_hvs[i].empty()) { std::cerr << "Read " << i << " has no windows.\n"; return 1; }
+        if (gpu_hvs[i].empty()) {
+            std::cerr << "Skipping read " << i << " (no windows)\n";
+            continue;
+        }
         inputs.push_back(&gpu_hvs[i][0]);
+        input_read_idx.push_back(i);
     }
 
-    // DB: all windows from every read in the second half, flattened
+    // DB: all windows from second-half reads, with read provenance
     std::vector<HV_16*> db;
+    std::vector<int>    db_read_idx; // db_read_idx[j] = original read index for db[j]
     for (int i : std::views::iota(half, n_reads))
-        for (HV_16& win : gpu_hvs[i])
+        for (HV_16& win : gpu_hvs[i]) {
             db.push_back(&win);
+            db_read_idx.push_back(i);
+        }
 
-    std::cout << "Input HVs  : " << inputs.size() << " (first window of each read in first half)\n";
-    std::cout << "DB HVs     : " << db.size()     << " (all windows from second-half reads)\n\n";
+    if (inputs.empty()) { std::cerr << "No valid input HVs.\n"; return 1; }
+    if (db.empty())     { std::cerr << "No valid db HVs.\n";    return 1; }
+
+    std::cout << "Input HVs : " << inputs.size() << " (first window of each first-half read)\n";
+    std::cout << "DB HVs    : " << db.size() << " (all windows from " << (n_reads - half) << " second-half reads)\n\n";
 
     // -----------------------------------------------------------------------
     // GPU k=1
@@ -109,8 +124,7 @@ int main(int argc, char* argv[]) {
     auto gpu1 = cosine_search(inputs, db, 1);
     auto tg1_end = std::chrono::high_resolution_clock::now();
     double gpu1_ms = std::chrono::duration<double, std::milli>(tg1_end - tg1_start).count();
-    std::cout << "Time: " << gpu1_ms << " ms"
-              << "  (" << gpu1_ms / inputs.size() << " ms/input)\n\n";
+    std::cout << "Time: " << gpu1_ms << " ms  (" << gpu1_ms / inputs.size() << " ms/input)\n\n";
 
     // -----------------------------------------------------------------------
     // GPU k=10
@@ -121,15 +135,14 @@ int main(int argc, char* argv[]) {
     auto gpu10 = cosine_search(inputs, db, K_TOP);
     auto tg10_end = std::chrono::high_resolution_clock::now();
     double gpu10_ms = std::chrono::duration<double, std::milli>(tg10_end - tg10_start).count();
-    std::cout << "Time: " << gpu10_ms << " ms"
-              << "  (" << gpu10_ms / inputs.size() << " ms/input)\n\n";
+    std::cout << "Time: " << gpu10_ms << " ms  (" << gpu10_ms / inputs.size() << " ms/input)\n\n";
 
     // -----------------------------------------------------------------------
-    // CPU argmax — brute force dot product over all db HVs for each input
+    // CPU argmax — brute force, best window match, reported at read level
     // -----------------------------------------------------------------------
     std::cout << "=== CPU cosine argmax ===\n";
-    std::vector<int> cpu_best_idx(inputs.size(), -1);
-    std::vector<float> cpu_best_score(inputs.size(), std::numeric_limits<float>::lowest());
+    std::vector<int>   cpu_best_db_idx(inputs.size(), -1);    // best db window index
+    std::vector<float> cpu_best_score (inputs.size(), std::numeric_limits<float>::lowest());
 
     auto tc_start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < (int)inputs.size(); i++) {
@@ -140,27 +153,21 @@ int main(int argc, char* argv[]) {
             float s = cosine(q, *db[j]);
             if (s > best) { best = s; best_j = j; }
         }
-        cpu_best_idx[i]   = best_j;
-        cpu_best_score[i] = best;
+        cpu_best_db_idx[i] = best_j;
+        cpu_best_score[i]  = best;
     }
     auto tc_end = std::chrono::high_resolution_clock::now();
     double cpu_ms = std::chrono::duration<double, std::milli>(tc_end - tc_start).count();
-    std::cout << "Time: " << cpu_ms << " ms"
-              << "  (" << cpu_ms / inputs.size() << " ms/input)\n\n";
+    std::cout << "Time: " << cpu_ms << " ms  (" << cpu_ms / inputs.size() << " ms/input)\n\n";
 
     // -----------------------------------------------------------------------
-    // Agreement check (outside timing)
-    //
-    // For each input we compare:
-    //   - GPU k=1 best db index
-    //   - GPU k=10 best db index (top of the ranked list)
-    //   - CPU best db index
-    //
-    // We recover the db index from the GPU results by scanning db[] for the
-    // returned pointer.  This is O(num_inputs * db_size) but it's outside
-    // timing so that's fine.  We build a reverse map for O(1) lookup instead.
+    // Agreement check — at READ level, not window level.
+    // Two results agree if they identify the same second-half read as best,
+    // regardless of which window within that read was matched.
     // -----------------------------------------------------------------------
-    std::cout << "=== Agreement check ===\n";
+    std::cout << "=== Agreement check (read-level) ===\n\n";
+
+    // Build reverse map: db pointer → db index (for decoding GPU results)
     std::unordered_map<HV_16*, int> db_ptr_to_idx;
     db_ptr_to_idx.reserve(db.size());
     for (int j = 0; j < (int)db.size(); j++) db_ptr_to_idx[db[j]] = j;
@@ -169,36 +176,112 @@ int main(int argc, char* argv[]) {
     int mismatches_10_vs_cpu = 0;
     int mismatches_1_vs_10   = 0;
 
-    for (int i = 0; i < (int)inputs.size(); i++) {
-        HV_16* ptr_gpu1  = gpu1.at(inputs[i])[0].second;
-        HV_16* ptr_gpu10 = gpu10.at(inputs[i])[0].second;
-        int idx_gpu1  = db_ptr_to_idx.at(ptr_gpu1);
-        int idx_gpu10 = db_ptr_to_idx.at(ptr_gpu10);
-        int idx_cpu   = cpu_best_idx[i];
+    // Per-input diagnostic log
+    std::cout << std::left
+              << std::setw(6)  << "Input"
+              << std::setw(10) << "GPU-k1"
+              << std::setw(10) << "GPU-k10"
+              << std::setw(10) << "CPU"
+              << std::setw(10) << "k1==CPU"
+              << std::setw(11) << "k10==CPU"
+              << "  GPU k1 score | GPU k10 score | CPU score\n";
+    std::cout << std::string(80, '-') << "\n";
 
-        if (idx_gpu1  != idx_cpu)   mismatches_1_vs_cpu++;
-        if (idx_gpu10 != idx_cpu)   mismatches_10_vs_cpu++;
-        if (idx_gpu1  != idx_gpu10) mismatches_1_vs_10++;
+    for (int i = 0; i < (int)inputs.size(); i++) {
+        // Decode GPU k=1 result
+        HV_16* ptr_gpu1  = gpu1.at(inputs[i])[0].second;
+        float  scr_gpu1  = gpu1.at(inputs[i])[0].first;
+        int    db_idx_gpu1 = db_ptr_to_idx.at(ptr_gpu1);
+        int    read_gpu1   = db_read_idx[db_idx_gpu1];
+
+        // Decode GPU k=10 result (top entry)
+        HV_16* ptr_gpu10   = gpu10.at(inputs[i])[0].second;
+        float  scr_gpu10   = gpu10.at(inputs[i])[0].first;
+        int    db_idx_gpu10 = db_ptr_to_idx.at(ptr_gpu10);
+        int    read_gpu10   = db_read_idx[db_idx_gpu10];
+
+        // CPU result
+        int   db_idx_cpu = cpu_best_db_idx[i];
+        int   read_cpu   = db_read_idx[db_idx_cpu];
+        float scr_cpu    = cpu_best_score[i];
+
+        bool agree_1_cpu  = (read_gpu1  == read_cpu);
+        bool agree_10_cpu = (read_gpu10 == read_cpu);
+        bool agree_1_10   = (read_gpu1  == read_gpu10);
+
+        if (!agree_1_cpu)  mismatches_1_vs_cpu++;
+        if (!agree_10_cpu) mismatches_10_vs_cpu++;
+        if (!agree_1_10)   mismatches_1_vs_10++;
+
+        std::cout << std::left
+                  << std::setw(6)  << i
+                  << std::setw(10) << read_gpu1
+                  << std::setw(10) << read_gpu10
+                  << std::setw(10) << read_cpu
+                  << std::setw(10) << (agree_1_cpu  ? "Y" : "N")
+                  << std::setw(11) << (agree_10_cpu ? "Y" : "N");
+
+        // Scores — GPU uses true cosine, CPU uses raw dot product (or normed
+        // if COSINE_NORMED defined), so numeric values aren't directly comparable
+        // but rank should agree when norms are similar
+        std::cout << "  " << std::fixed << std::setprecision(4)
+                  << scr_gpu1 << " | " << scr_gpu10 << " | " << scr_cpu;
+
+        // Flag cases where k=1 and k=10 disagree with each other — these are
+        // the most interesting since both use the GPU score matrix
+        if (!agree_1_10)
+            std::cout << "  <-- k=1 vs k=10 MISMATCH (db_win: " << db_idx_gpu1
+                      << " vs " << db_idx_gpu10 << ")";
+
+        std::cout << "\n";
+
+        // For mismatching rows, dump the top-10 GPU k=10 results so we can
+        // see what the score landscape looks like
+        if (!agree_1_cpu || !agree_10_cpu) {
+            std::cout << "    [k=10 top results for input " << i << ":]\n";
+            const auto& matches = gpu10.at(inputs[i]);
+            for (int r = 0; r < (int)matches.size(); r++) {
+                int   win_j  = db_ptr_to_idx.at(matches[r].second);
+                int   read_r = db_read_idx[win_j];
+                float scr_r  = matches[r].first;
+                std::cout << "      rank " << r << ": read=" << read_r
+                          << " win=" << win_j << " score=" << scr_r << "\n";
+            }
+            // Also dump CPU top-5 for this input
+            std::cout << "    [CPU top-5 for input " << i << ":]\n";
+            std::vector<std::pair<float,int>> cpu_ranked;
+            cpu_ranked.reserve(db.size());
+            for (int j = 0; j < (int)db.size(); j++)
+                cpu_ranked.push_back({cosine(*inputs[i], *db[j]), j});
+            std::partial_sort(cpu_ranked.begin(), cpu_ranked.begin() + 5, cpu_ranked.end(),
+                              [](auto& a, auto& b){ return a.first > b.first; });
+            for (int r = 0; r < 5; r++) {
+                int   win_j  = cpu_ranked[r].second;
+                int   read_r = db_read_idx[win_j];
+                float scr_r  = cpu_ranked[r].first;
+                std::cout << "      rank " << r << ": read=" << read_r
+                          << " win=" << win_j << " score=" << scr_r << "\n";
+            }
+        }
     }
 
+    std::cout << "\n";
     auto report = [&](const char* label, int mm) {
-        if (mm == 0)
-            std::cout << label << ": ALL AGREE\n";
-        else
-            std::cout << label << ": " << mm << " / " << inputs.size() << " mismatches\n";
+        if (mm == 0) std::cout << label << ": ALL AGREE\n";
+        else         std::cout << label << ": " << mm << " / " << inputs.size() << " mismatches\n";
     };
-    report("GPU k=1  vs CPU    ", mismatches_1_vs_cpu);
-    report("GPU k=10 vs CPU    ", mismatches_10_vs_cpu);
-    report("GPU k=1  vs GPU k=10", mismatches_1_vs_10);
+    report("GPU k=1  vs CPU     (read-level)", mismatches_1_vs_cpu);
+    report("GPU k=10 vs CPU     (read-level)", mismatches_10_vs_cpu);
+    report("GPU k=1  vs GPU k=10 (read-level)", mismatches_1_vs_10);
 
     // -----------------------------------------------------------------------
     // Summary
     // -----------------------------------------------------------------------
     std::cout << "\n=== Summary ===\n";
-    std::cout << "Encode          : " << encode_ms << " ms\n";
-    std::cout << "GPU k=1         : " << gpu1_ms   << " ms  (" << gpu1_ms  / inputs.size() << " ms/input)\n";
-    std::cout << "GPU k=10        : " << gpu10_ms  << " ms  (" << gpu10_ms / inputs.size() << " ms/input)\n";
-    std::cout << "CPU argmax      : " << cpu_ms    << " ms  (" << cpu_ms   / inputs.size() << " ms/input)\n";
+    std::cout << "Encode     : " << encode_ms << " ms\n";
+    std::cout << "GPU k=1    : " << gpu1_ms   << " ms  (" << gpu1_ms  / inputs.size() << " ms/input)\n";
+    std::cout << "GPU k=10   : " << gpu10_ms  << " ms  (" << gpu10_ms / inputs.size() << " ms/input)\n";
+    std::cout << "CPU argmax : " << cpu_ms    << " ms  (" << cpu_ms   / inputs.size() << " ms/input)\n";
     std::cout << "Speedup k=1  vs CPU: " << (cpu_ms / gpu1_ms)  << "x\n";
     std::cout << "Speedup k=10 vs CPU: " << (cpu_ms / gpu10_ms) << "x\n";
 

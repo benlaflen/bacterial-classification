@@ -533,11 +533,7 @@ std::unordered_map<HV_16*, std::vector<std::pair<float, HV_16*>>> cosine_search(
     cudaMalloc(&d_idx,    (size_t)num_inputs * k * sizeof(int));
 
     cudaError_t e;
-    if (k == 1) {
-        e = launch_cosine_argmax(d_inputs, d_db, d_scores, d_idx, num_inputs, num_db, 0);
-    } else {
-        e = launch_cosine_topk(d_inputs, d_db, d_scores, d_idx, num_inputs, num_db, k, 0);
-    }
+    e = launch_cosine_topk(d_inputs, d_db, d_scores, d_idx, num_inputs, num_db, k, 0);
     if (e != cudaSuccess) {
         cudaFree(d_inputs); cudaFree(d_db); cudaFree(d_scores); cudaFree(d_idx);
         throw std::runtime_error(std::string("cosine_search: ") + cudaGetErrorString(e));

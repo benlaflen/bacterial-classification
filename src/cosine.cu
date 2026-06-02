@@ -1,7 +1,6 @@
 #include "GPU.cuh"
 #include <stdint.h>
 #include <cuda_runtime.h>
-#include <cub/cub.cuh>
 #include <stdexcept>
 #include <string>
 #include <algorithm>
@@ -640,6 +639,108 @@ __global__ void topk_bitonic_kernel(
 // d_idx_out     [num_inputs][k]        int,   device ptr, caller allocates
 // k             results per input, descending by score (clamped to num_db)
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Large-db top-k: k-pass partial selection sort, one block per input row.
+//
+// Each of the k passes does a parallel reduction over num_db scores to find
+// the current maximum among unselected entries, then masks it out.
+// Threads stripe over num_db; each warp finds its local max, then a
+// shared-memory reduction picks the block-wide winner.
+//
+// Complexity: O(num_db * k) — fine for small k and the cold path.
+// No external dependencies.
+// ---------------------------------------------------------------------------
+__global__ void topk_partial_kernel(
+    const float* __restrict__ d_scores,   // [num_inputs * num_db]
+          float*              d_scores_out,// [num_inputs * k]
+          int*                d_idx_out,   // [num_inputs * k]
+    int num_db,
+    int k)
+{
+    int input_idx = blockIdx.x;
+    const float* row = d_scores + (size_t)input_idx * num_db;
+
+    // Track which db entries have already been selected
+    // We mark them by writing -FLT_MAX into a local shadow — but we can't
+    // afford num_db shared memory here (it's large by definition).
+    // Instead we keep only the k selected indices in registers/shared mem
+    // and re-scan each pass checking against them.
+    __shared__ int   selected[/* k, but k is runtime */ 1024]; // supports k up to 1024
+    __shared__ float best_val;
+    __shared__ int   best_idx;
+
+    // Only need k slots; caller guarantees k <= num_db and practically k << 1024
+    // Zero-init selected sentinel
+    for (int i = threadIdx.x; i < k; i += blockDim.x) selected[i] = -1;
+    __syncthreads();
+
+    float* out_s = d_scores_out + (size_t)input_idx * k;
+    int*   out_i = d_idx_out    + (size_t)input_idx * k;
+
+    for (int pass = 0; pass < k; pass++) {
+        // Each thread finds its best unselected candidate
+        float t_best_val = -1e38f;
+        int   t_best_idx = -1;
+
+        for (int j = threadIdx.x; j < num_db; j += blockDim.x) {
+            // Check if j was already selected in a prior pass
+            bool already = false;
+            for (int s = 0; s < pass; s++)
+                if (selected[s] == j) { already = true; break; }
+            if (already) continue;
+
+            float v = row[j];
+            if (v > t_best_val) { t_best_val = v; t_best_idx = j; }
+        }
+
+        // Warp reduction
+        for (int offset = warpSize / 2; offset > 0; offset >>= 1) {
+            float ov = __shfl_down_sync(0xffffffff, t_best_val, offset);
+            int   oi = __shfl_down_sync(0xffffffff, t_best_idx, offset);
+            if (ov > t_best_val) { t_best_val = ov; t_best_idx = oi; }
+        }
+
+        // Block reduction via shared memory
+        if (threadIdx.x == 0) { best_val = -1e38f; best_idx = -1; }
+        __syncthreads();
+
+        if ((threadIdx.x & 31) == 0) {
+            // One atomic CAS loop to update best — use a simple critical section
+            // by serialising warp leaders. For small warp counts this is fine.
+            // We abuse atomicMax on the packed (val_bits, ~idx) uint64 trick.
+            // Simpler: just let warp 0 leader write; serialise with __syncthreads.
+            // Since we only have blockDim.x/32 warps this is fast.
+        }
+        // Easier: gather into shared, let thread 0 pick winner serially.
+        // With 256 threads that's 8 candidates — negligible.
+        __shared__ float sh_warp_val[8];
+        __shared__ int   sh_warp_idx[8];
+        int warp_id = threadIdx.x / 32;
+        if ((threadIdx.x & 31) == 0) {
+            sh_warp_val[warp_id] = t_best_val;
+            sh_warp_idx[warp_id] = t_best_idx;
+        }
+        __syncthreads();
+
+        if (threadIdx.x == 0) {
+            int n_warps = (blockDim.x + 31) / 32;
+            float bv = -1e38f; int bi = -1;
+            for (int w = 0; w < n_warps; w++)
+                if (sh_warp_val[w] > bv) { bv = sh_warp_val[w]; bi = sh_warp_idx[w]; }
+            best_val = bv;
+            best_idx = bi;
+            selected[pass] = bi;
+        }
+        __syncthreads();
+
+        if (threadIdx.x == 0) {
+            out_s[pass] = best_val;
+            out_i[pass] = best_idx;
+        }
+        __syncthreads();
+    }
+}
+
 cudaError_t launch_cosine_topk(
     const int16_t*  d_inputs,
     const int16_t*  d_db,
@@ -686,96 +787,20 @@ cudaError_t launch_cosine_topk(
             d_score_matrix, d_scores_out, d_idx_out, num_db, k);
         e = cudaGetLastError();
     } else {
-        // CUB segmented sort path for large db
-        //
-        // CUB needs a pair of (values, keys) arrays to sort.  We treat scores
-        // as values and db indices as keys.  The segmented sort sorts each row
-        // (segment) descending independently.
-
-        // Build index array: row i contains [0, 1, ..., num_db-1]
-        int* d_indices = nullptr;
-        e = cudaMalloc(&d_indices, (size_t)num_inputs * num_db * sizeof(int));
-        if (e != cudaSuccess) { cudaFree(d_score_matrix); return e; }
-        {
-            // Fill via a host tile memcpy'd for each row.
-            // (A tiny fill kernel would be cleaner for very large num_inputs,
-            //  but this is on the cold path and num_db >> num_inputs typically.)
-            std::vector<int> tile(num_db);
-            for (int j = 0; j < num_db; j++) tile[j] = j;
-            for (int i = 0; i < num_inputs; i++) {
-                e = cudaMemcpyAsync(d_indices + (size_t)i * num_db, tile.data(),
-                                    num_db * sizeof(int), cudaMemcpyHostToDevice, stream);
-                if (e != cudaSuccess) { cudaFree(d_indices); cudaFree(d_score_matrix); return e; }
-            }
-        }
-
-        // Segment offsets: [0, num_db, 2*num_db, ..., num_inputs*num_db]
-        int* d_offsets = nullptr;
-        e = cudaMalloc(&d_offsets, (num_inputs + 1) * sizeof(int));
-        if (e != cudaSuccess) { cudaFree(d_indices); cudaFree(d_score_matrix); return e; }
-        {
-            std::vector<int> offsets(num_inputs + 1);
-            for (int i = 0; i <= num_inputs; i++) offsets[i] = i * num_db;
-            e = cudaMemcpyAsync(d_offsets, offsets.data(), (num_inputs + 1) * sizeof(int),
-                                cudaMemcpyHostToDevice, stream);
-            if (e != cudaSuccess) { cudaFree(d_offsets); cudaFree(d_indices); cudaFree(d_score_matrix); return e; }
-        }
-
-        float* d_sorted_scores  = nullptr;
-        int*   d_sorted_indices = nullptr;
-        e = cudaMalloc(&d_sorted_scores,  (size_t)num_inputs * num_db * sizeof(float));
-        if (e != cudaSuccess) { cudaFree(d_offsets); cudaFree(d_indices); cudaFree(d_score_matrix); return e; }
-        e = cudaMalloc(&d_sorted_indices, (size_t)num_inputs * num_db * sizeof(int));
-        if (e != cudaSuccess) { cudaFree(d_sorted_scores); cudaFree(d_offsets); cudaFree(d_indices); cudaFree(d_score_matrix); return e; }
-
-        // CUB: query temp size, allocate, then execute
-        void*  d_temp  = nullptr;
-        size_t temp_sz = 0;
-        cub::DeviceSegmentedSort::SortPairsDescending(
-            d_temp, temp_sz,
-            d_score_matrix, d_sorted_scores,
-            d_indices,       d_sorted_indices,
-            num_inputs * num_db, num_inputs,
-            d_offsets, d_offsets + 1, stream);
-
-        e = cudaMalloc(&d_temp, temp_sz);
-        if (e != cudaSuccess) {
-            cudaFree(d_sorted_indices); cudaFree(d_sorted_scores);
-            cudaFree(d_offsets); cudaFree(d_indices); cudaFree(d_score_matrix); return e;
-        }
-
-        cub::DeviceSegmentedSort::SortPairsDescending(
-            d_temp, temp_sz,
-            d_score_matrix, d_sorted_scores,
-            d_indices,       d_sorted_indices,
-            num_inputs * num_db, num_inputs,
-            d_offsets, d_offsets + 1, stream);
+        // Large-db path: k-pass partial selection, no external dependencies.
+        // One block per input row; O(num_db * k) per row.
+        topk_partial_kernel<<<num_inputs, 256, 0, stream>>>(
+            d_score_matrix, d_scores_out, d_idx_out, num_db, k);
         e = cudaGetLastError();
-
-        cudaFree(d_temp);
-
-        // Slice top-k from each sorted row
-        if (e == cudaSuccess) {
-            for (int i = 0; i < num_inputs; i++) {
-                cudaMemcpyAsync(d_scores_out + (size_t)i * k,
-                                d_sorted_scores  + (size_t)i * num_db,
-                                k * sizeof(float), cudaMemcpyDeviceToDevice, stream);
-                cudaMemcpyAsync(d_idx_out + (size_t)i * k,
-                                d_sorted_indices + (size_t)i * num_db,
-                                k * sizeof(int),   cudaMemcpyDeviceToDevice, stream);
-            }
-            e = cudaGetLastError();
-        }
-
-        cudaFree(d_sorted_indices);
-        cudaFree(d_sorted_scores);
-        cudaFree(d_offsets);
-        cudaFree(d_indices);
     }
 
     cudaFree(d_score_matrix);
     return e;
 }
+
+// ===========================================================================
+// C++ API
+// ===========================================================================
 
 std::unordered_map<HV_16*, std::vector<std::pair<float, HV_16*>>> cosine_search(
     const std::vector<HV_16*>& inputs,

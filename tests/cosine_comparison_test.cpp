@@ -51,27 +51,6 @@ static std::vector<int16_t> build_kmer_map() {
 }
 
 // ---------------------------------------------------------------------------
-// CPU cosine — raw dot product, no norm division (matches existing signature).
-// Define COSINE_NORMED to switch to true cosine similarity.
-// ---------------------------------------------------------------------------
-static float cosine(const HV_16& l, const HV_16& r) {
-#ifdef COSINE_NORMED
-    int64_t dot = 0, sq_l = 0, sq_r = 0;
-    for (size_t i = 0; i < l.size(); i++) {
-        dot  += (int64_t)l[i] * r[i];
-        sq_l += (int64_t)l[i] * l[i];
-        sq_r += (int64_t)r[i] * r[i];
-    }
-    return (float)dot / (std::sqrt((float)sq_l) * std::sqrt((float)sq_r));
-#else
-    int64_t dot = 0;
-    for (size_t i = 0; i < l.size(); i++)
-        dot += (int64_t)l[i] * r[i];
-    return (float)dot;
-#endif
-}
-
-// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 int main(int argc, char* argv[]) {

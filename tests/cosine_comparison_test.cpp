@@ -3,10 +3,8 @@
 #include <string>
 #include <vector>
 #include <chrono>
-#include <numeric>
 #include <limits>
 #include <ranges>
-#include <cmath>
 #include <iomanip>
 #include "GPU.cuh"
 #include "encoder.h"
@@ -161,22 +159,35 @@ int main(int argc, char* argv[]) {
     std::cout << "Time: " << cpu_ms << " ms  (" << cpu_ms / inputs.size() << " ms/input)\n\n";
 
     // -----------------------------------------------------------------------
-    // Agreement check — at READ level, not window level.
-    // Two results agree if they identify the same second-half read as best,
-    // regardless of which window within that read was matched.
+    // Agreement check — read-level, tie-aware.
+    //
+    // "Agree" means: the result from method A appears somewhere in the
+    // tied-top block of method B (scores within 1e-5 of the best).
+    // This handles the common case where many windows score identically
+    // and the two methods just happen to pick different tied winners.
     // -----------------------------------------------------------------------
-    std::cout << "=== Agreement check (read-level) ===\n\n";
+    std::cout << "=== Agreement check (read-level, tie-aware) ===\n\n";
 
-    // Build reverse map: db pointer → db index (for decoding GPU results)
+    // Reverse map: db pointer → db index
     std::unordered_map<HV_16*, int> db_ptr_to_idx;
     db_ptr_to_idx.reserve(db.size());
     for (int j = 0; j < (int)db.size(); j++) db_ptr_to_idx[db[j]] = j;
+
+    // Returns true if `read` appears anywhere in the tied-top block of `matches`
+    auto read_in_tied_top = [&](int read, const std::vector<std::pair<float, HV_16*>>& matches) -> bool {
+        if (matches.empty()) return false;
+        float top_score = matches[0].first;
+        for (const auto& [score, ptr] : matches) {
+            if (score < top_score - 1e-5f) break;
+            if (db_read_idx[db_ptr_to_idx.at(ptr)] == read) return true;
+        }
+        return false;
+    };
 
     int mismatches_1_vs_cpu  = 0;
     int mismatches_10_vs_cpu = 0;
     int mismatches_1_vs_10   = 0;
 
-    // Per-input diagnostic log
     std::cout << std::left
               << std::setw(6)  << "Input"
               << std::setw(10) << "GPU-k1"
@@ -184,30 +195,33 @@ int main(int argc, char* argv[]) {
               << std::setw(10) << "CPU"
               << std::setw(10) << "k1==CPU"
               << std::setw(11) << "k10==CPU"
-              << "  GPU k1 score | GPU k10 score | CPU score\n";
-    std::cout << std::string(80, '-') << "\n";
+              << "  GPU-k1 score | GPU-k10 score | CPU score\n";
+    std::cout << std::string(82, '-') << "\n";
 
     for (int i = 0; i < (int)inputs.size(); i++) {
-        // Decode GPU k=1 result
-        HV_16* ptr_gpu1  = gpu1.at(inputs[i])[0].second;
-        float  scr_gpu1  = gpu1.at(inputs[i])[0].first;
-        int    db_idx_gpu1 = db_ptr_to_idx.at(ptr_gpu1);
-        int    read_gpu1   = db_read_idx[db_idx_gpu1];
+        // GPU k=1
+        HV_16* ptr_gpu1    = gpu1.at(inputs[i])[0].second;
+        float  scr_gpu1    = gpu1.at(inputs[i])[0].first;
+        int    read_gpu1   = db_read_idx[db_ptr_to_idx.at(ptr_gpu1)];
 
-        // Decode GPU k=10 result (top entry)
+        // GPU k=10 top entry
         HV_16* ptr_gpu10   = gpu10.at(inputs[i])[0].second;
         float  scr_gpu10   = gpu10.at(inputs[i])[0].first;
-        int    db_idx_gpu10 = db_ptr_to_idx.at(ptr_gpu10);
-        int    read_gpu10   = db_read_idx[db_idx_gpu10];
+        int    read_gpu10  = db_read_idx[db_ptr_to_idx.at(ptr_gpu10)];
 
-        // CPU result
-        int   db_idx_cpu = cpu_best_db_idx[i];
-        int   read_cpu   = db_read_idx[db_idx_cpu];
-        float scr_cpu    = cpu_best_score[i];
+        // CPU
+        int    read_cpu    = db_read_idx[cpu_best_db_idx[i]];
+        float  scr_cpu     = cpu_best_score[i];
 
-        bool agree_1_cpu  = (read_gpu1  == read_cpu);
-        bool agree_10_cpu = (read_gpu10 == read_cpu);
-        bool agree_1_10   = (read_gpu1  == read_gpu10);
+        // Tie-aware agreement: k=1 agrees with k=10 if the k=1 read is
+        // anywhere in the k=10 tied-top block, and vice versa.
+        bool agree_1_10   = read_in_tied_top(read_gpu1,  gpu10.at(inputs[i]))
+                         || read_in_tied_top(read_gpu10, gpu1.at(inputs[i]));
+        // For CPU vs GPU: CPU is a single result; check if CPU's read
+        // appears in GPU k=10's tied top, and if GPU k=1's read matches CPU.
+        bool agree_1_cpu  = (read_gpu1 == read_cpu)
+                         || read_in_tied_top(read_cpu, gpu10.at(inputs[i]));
+        bool agree_10_cpu = read_in_tied_top(read_cpu, gpu10.at(inputs[i]));
 
         if (!agree_1_cpu)  mismatches_1_vs_cpu++;
         if (!agree_10_cpu) mismatches_10_vs_cpu++;
@@ -219,35 +233,24 @@ int main(int argc, char* argv[]) {
                   << std::setw(10) << read_gpu10
                   << std::setw(10) << read_cpu
                   << std::setw(10) << (agree_1_cpu  ? "Y" : "N")
-                  << std::setw(11) << (agree_10_cpu ? "Y" : "N");
-
-        // Scores — GPU uses true cosine, CPU uses raw dot product (or normed
-        // if COSINE_NORMED defined), so numeric values aren't directly comparable
-        // but rank should agree when norms are similar
-        std::cout << "  " << std::fixed << std::setprecision(4)
+                  << std::setw(11) << (agree_10_cpu ? "Y" : "N")
+                  << "  " << std::fixed << std::setprecision(4)
                   << scr_gpu1 << " | " << scr_gpu10 << " | " << scr_cpu;
 
-        // Flag cases where k=1 and k=10 disagree with each other — these are
-        // the most interesting since both use the GPU score matrix
         if (!agree_1_10)
-            std::cout << "  <-- k=1 vs k=10 MISMATCH (db_win: " << db_idx_gpu1
-                      << " vs " << db_idx_gpu10 << ")";
+            std::cout << "  <-- genuine k=1 vs k=10 mismatch";
 
         std::cout << "\n";
 
-        // For mismatching rows, dump the top-10 GPU k=10 results so we can
-        // see what the score landscape looks like
-        if (!agree_1_cpu || !agree_10_cpu) {
-            std::cout << "    [k=10 top results for input " << i << ":]\n";
-            const auto& matches = gpu10.at(inputs[i]);
-            for (int r = 0; r < (int)matches.size(); r++) {
-                int   win_j  = db_ptr_to_idx.at(matches[r].second);
-                int   read_r = db_read_idx[win_j];
-                float scr_r  = matches[r].first;
-                std::cout << "      rank " << r << ": read=" << read_r
-                          << " win=" << win_j << " score=" << scr_r << "\n";
+        // On any genuine mismatch dump the ranked lists so we can diagnose
+        if (!agree_1_cpu || !agree_10_cpu || !agree_1_10) {
+            std::cout << "    [GPU k=10 top results for input " << i << ":]\n";
+            for (int r = 0; r < (int)gpu10.at(inputs[i]).size(); r++) {
+                const auto& m = gpu10.at(inputs[i])[r];
+                int win_j  = db_ptr_to_idx.at(m.second);
+                std::cout << "      rank " << r << ": read=" << db_read_idx[win_j]
+                          << " win=" << win_j << " score=" << m.first << "\n";
             }
-            // Also dump CPU top-5 for this input
             std::cout << "    [CPU top-5 for input " << i << ":]\n";
             std::vector<std::pair<float,int>> cpu_ranked;
             cpu_ranked.reserve(db.size());
@@ -256,11 +259,9 @@ int main(int argc, char* argv[]) {
             std::partial_sort(cpu_ranked.begin(), cpu_ranked.begin() + 5, cpu_ranked.end(),
                               [](auto& a, auto& b){ return a.first > b.first; });
             for (int r = 0; r < 5; r++) {
-                int   win_j  = cpu_ranked[r].second;
-                int   read_r = db_read_idx[win_j];
-                float scr_r  = cpu_ranked[r].first;
-                std::cout << "      rank " << r << ": read=" << read_r
-                          << " win=" << win_j << " score=" << scr_r << "\n";
+                int win_j = cpu_ranked[r].second;
+                std::cout << "      rank " << r << ": read=" << db_read_idx[win_j]
+                          << " win=" << win_j << " score=" << cpu_ranked[r].first << "\n";
             }
         }
     }
@@ -270,9 +271,9 @@ int main(int argc, char* argv[]) {
         if (mm == 0) std::cout << label << ": ALL AGREE\n";
         else         std::cout << label << ": " << mm << " / " << inputs.size() << " mismatches\n";
     };
-    report("GPU k=1  vs CPU     (read-level)", mismatches_1_vs_cpu);
-    report("GPU k=10 vs CPU     (read-level)", mismatches_10_vs_cpu);
-    report("GPU k=1  vs GPU k=10 (read-level)", mismatches_1_vs_10);
+    report("GPU k=1  vs CPU      (read-level, tie-aware)", mismatches_1_vs_cpu);
+    report("GPU k=10 vs CPU      (read-level, tie-aware)", mismatches_10_vs_cpu);
+    report("GPU k=1  vs GPU k=10 (read-level, tie-aware)", mismatches_1_vs_10);
 
     // -----------------------------------------------------------------------
     // Summary

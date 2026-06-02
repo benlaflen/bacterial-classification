@@ -378,6 +378,29 @@ std::vector<std::vector<HV_16>> encode(const std::vector<int16_t>& kmer_map, con
     }
 
     fprintf(stderr, "[encode] Exited main loop. batch_index=%d stream=%p\n", batch_index, (void*)stream);
+
+    if (stream) {
+        cudaStreamSynchronize(stream);
+        size_t flat_bytes = (size_t)gpu_total_windows * HV_DIM * sizeof(int16_t);
+        std::vector<int16_t> flat(gpu_total_windows * HV_DIM);
+        cudaMemcpy(flat.data(), d_outputs, flat_bytes, cudaMemcpyDeviceToHost);
+        for (int i = 0; i < (int)gpu_win_offsets.size() - 1; i++) {
+            int wins = gpu_win_offsets[i + 1] - gpu_win_offsets[i];
+            output[gpu_batch_start + i].resize(wins);
+            for (int w = 0; w < wins; w++) {
+                size_t flat_start = ((size_t)gpu_win_offsets[i] + w) * HV_DIM;
+                output[gpu_batch_start + i][w] = HV_16(
+                    flat.begin() + flat_start,
+                    flat.begin() + flat_start + HV_DIM);
+            }
+        }
+        cudaFree(d_seq_packed);
+        cudaFree(d_seq_offsets_dev);
+        cudaFree(d_win_offsets_dev);
+        cudaFree(d_outputs);
+        cudaStreamDestroy(stream);
+    }
+
     cudaFree(d_kmer_map);
     fprintf(stderr, "[encode] cudaFree(d_kmer_map): done\n");
 
